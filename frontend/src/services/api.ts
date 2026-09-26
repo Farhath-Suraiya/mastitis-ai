@@ -11,7 +11,10 @@ import {
   SMSSendResult,
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// In production, set VITE_API_BASE_URL in Vercel environment variables to your deployed backend URL.
+// In local development, set it in frontend/.env.local (already set to http://localhost:8001).
+const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8001';
+
 
 const api = axios.create({
   baseURL: API_BASE_URL,

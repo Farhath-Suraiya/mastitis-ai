@@ -34,64 +34,124 @@ import {
 import { HerdSummary, Alert } from '../types';
 import { getHerdSummary, getAlerts, getAnalyticsData, getSmsHistory } from '../services/api';
 import { RiskBadge } from '../components/RiskBadge';
+import { useLanguage } from '../i18n/LanguageContext';
+
+// ---------------------------------------------------------------------------
+// Lightweight skeleton helper — renders a pulsing placeholder block
+// ---------------------------------------------------------------------------
+const Skeleton: React.FC<{ className?: string; style?: React.CSSProperties }> = ({ className = '', style }) => (
+  <div className={`animate-pulse bg-slate-700/60 rounded-lg ${className}`} style={style} />
+);
 
 export const Dashboard: React.FC = () => {
+  const { t, translateRiskCategory } = useLanguage();
+
+  // Separate loading state per data-group so sections can render independently
   const [summary, setSummary] = useState<HerdSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState(false);
+
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+
   const [analytics, setAnalytics] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+
   const [smsCount, setSmsCount] = useState(0);
+
   const [selectedIndicator, setSelectedIndicator] = useState<'all' | 'yield' | 'scc' | 'cond' | 'act' | 'rum'>('all');
 
-  const fetchData = async () => {
-    setLoading(true);
+  // Track whether a manual refresh is in flight (for the Refresh button spinner)
+  const [refreshing, setRefreshing] = useState(false);
+
+  // -------------------------------------------------------------------------
+  // Individual async fetchers — they do NOT block each other
+  // -------------------------------------------------------------------------
+  const fetchSummary = async () => {
+    setSummaryLoading(true);
+    setSummaryError(false);
     try {
-      const [sumData, alertData, chartData, smsHist] = await Promise.all([
-        getHerdSummary(),
-        getAlerts(),
-        getAnalyticsData(),
-        getSmsHistory(100),
-      ]);
-      setSummary(sumData);
-      setAlerts(alertData);
-      setAnalytics(chartData);
-      setSmsCount(smsHist.filter(s => s.status === 'SENT_SIMULATED' && s.animal_id !== 'TEST').length);
+      const data = await getHerdSummary();
+      setSummary(data);
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
+      console.error('Error fetching herd summary:', err);
+      setSummaryError(true);
     } finally {
-      setLoading(false);
+      setSummaryLoading(false);
     }
   };
 
+  const fetchAlerts = async () => {
+    setAlertsLoading(true);
+    try {
+      const data = await getAlerts();
+      setAlerts(data);
+    } catch (err) {
+      console.error('Error fetching alerts:', err);
+      setAlerts([]);
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
+  const fetchAnalyticsAndSms = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const [chartData, smsHist] = await Promise.all([
+        getAnalyticsData(),
+        getSmsHistory(100),
+      ]);
+      setAnalytics(chartData);
+      setSmsCount(smsHist.filter(s => s.status === 'SENT_SIMULATED' && s.animal_id !== 'TEST').length);
+    } catch (err) {
+      console.error('Error fetching analytics/SMS data:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  // On mount: kick off all fetches in parallel — page renders immediately
   useEffect(() => {
-    fetchData();
+    fetchSummary();
+    fetchAlerts();
+    fetchAnalyticsAndSms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-3">
-        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-        <span className="text-sm font-medium text-slate-400">Loading Herd Health Platform...</span>
-      </div>
-    );
-  }
+  // Manual refresh: re-run everything
+  const fetchData = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchSummary(), fetchAlerts(), fetchAnalyticsAndSms()]);
+    setRefreshing(false);
+  };
 
+  // -------------------------------------------------------------------------
+  // Derived values (safe when data is null/empty)
+  // -------------------------------------------------------------------------
   const atRiskCount = (summary?.moderate_risk_count || 0) + (summary?.high_risk_count || 0);
   const unreviewedAlerts = alerts.filter(a => !a.is_reviewed).length;
   const totalMonitored = summary?.animals_monitored || summary?.total_animals || 500;
 
   // Pie chart risk distribution data
-  const riskDistData = analytics?.risk_distribution || [
-    { name: 'No Risk', count: summary?.no_risk_count || 0, color: '#10B981' },
-    { name: 'Low Risk', count: summary?.low_risk_count || 0, color: '#3B82F6' },
-    { name: 'Moderate Risk', count: summary?.moderate_risk_count || 0, color: '#F59E0B' },
-    { name: 'High Risk', count: summary?.high_risk_count || 0, color: '#EF4444' },
-  ];
+  const riskDistData = analytics?.risk_distribution
+    ? analytics.risk_distribution.map((item: any) => ({
+        ...item,
+        name: translateRiskCategory(item.name),
+      }))
+    : [
+        { name: t('noRisk'), count: summary?.no_risk_count || 0, color: '#10B981' },
+        { name: t('lowRisk'), count: summary?.low_risk_count || 0, color: '#3B82F6' },
+        { name: t('moderateRisk'), count: summary?.moderate_risk_count || 0, color: '#F59E0B' },
+        { name: t('highRisk'), count: summary?.high_risk_count || 0, color: '#EF4444' },
+      ];
 
+  // -------------------------------------------------------------------------
+  // Render — layout is always visible; skeletons fill awaiting sections
+  // -------------------------------------------------------------------------
   return (
     <div className="space-y-6 pb-8">
       {/* ------------------------------------------------------------------- */}
-      {/* 7. Synthetic Data Indicator Banner                                 */}
+      {/* Synthetic Data Indicator Banner                                      */}
       {/* ------------------------------------------------------------------- */}
       <div className="bg-gradient-to-r from-amber-500/15 via-slate-800/80 to-slate-800/80 border border-amber-500/30 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-start sm:items-center space-x-3">
@@ -103,7 +163,7 @@ export const Dashboard: React.FC = () => {
               <span className="text-xs font-black tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                 Prototype using synthetic data
               </span>
-              <span className="text-[11px] text-slate-400">Research & Demonstration Model</span>
+              <span className="text-[11px] text-slate-400">Research &amp; Demonstration Model</span>
             </div>
             <p className="text-xs text-slate-300 mt-1 leading-relaxed">
               This system forecasts bovine mastitis risk within a <strong>7–14 day window</strong> using trained machine learning models on synthetic telemetry. It does <strong>not</strong> claim clinical diagnostic validation and is built for operational decision support.
@@ -118,10 +178,11 @@ export const Dashboard: React.FC = () => {
           </div>
           <button
             onClick={fetchData}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition"
+            disabled={refreshing}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition disabled:opacity-60"
             title="Refresh dashboard data"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
         </div>
@@ -140,70 +201,87 @@ export const Dashboard: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {/* Total Animals */}
-          <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-slate-400 block">Total Animals</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-white">{summary?.total_animals.toLocaleString()}</span>
-              <Users className="w-4 h-4 text-blue-400 opacity-60" />
+          {summaryLoading ? (
+            // Skeleton placeholders — same grid dimensions as real cards
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-sm flex flex-col justify-between h-24">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-8 w-14 mt-2" />
+                <Skeleton className="h-2 w-24 mt-1" />
+              </div>
+            ))
+          ) : summaryError ? (
+            <div className="col-span-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm text-center">
+              Unable to load herd data — backend may be unavailable. <button onClick={fetchSummary} className="underline ml-1">Retry</button>
             </div>
-            <span className="text-[10px] text-slate-500 mt-1 block">Full registered herd</span>
-          </div>
+          ) : (
+            <>
+              {/* Total Animals */}
+              <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-slate-400 block">{t('totalAnimals')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-white">{summary?.total_animals.toLocaleString()}</span>
+                  <Users className="w-4 h-4 text-blue-400 opacity-60" />
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1 block">Full registered herd</span>
+              </div>
 
-          {/* Animals Under Monitoring */}
-          <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-slate-400 block">Under Monitoring</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-cyan-400">{totalMonitored.toLocaleString()}</span>
-              <Activity className="w-4 h-4 text-cyan-400 opacity-60" />
-            </div>
-            <span className="text-[10px] text-cyan-400/80 mt-1 block">Active sensor telemetry</span>
-          </div>
+              {/* Animals Under Monitoring */}
+              <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-slate-400 block">{t('navAnimals')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-cyan-400">{totalMonitored.toLocaleString()}</span>
+                  <Activity className="w-4 h-4 text-cyan-400 opacity-60" />
+                </div>
+                <span className="text-[10px] text-cyan-400/80 mt-1 block">Active sensor telemetry</span>
+              </div>
 
-          {/* High Risk */}
-          <div className="bg-slate-800/80 rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-rose-300 block">High Risk</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-rose-400">{summary?.high_risk_count}</span>
-              <ShieldAlert className="w-4 h-4 text-rose-400 opacity-80" />
-            </div>
-            <span className="text-[10px] text-rose-300/80 mt-1 block">&gt; 60% mastitis risk</span>
-          </div>
+              {/* High Risk */}
+              <div className="bg-slate-800/80 rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-rose-300 block">{t('highRisk')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-rose-400">{summary?.high_risk_count}</span>
+                  <ShieldAlert className="w-4 h-4 text-rose-400 opacity-80" />
+                </div>
+                <span className="text-[10px] text-rose-300/80 mt-1 block">&gt; 60% mastitis risk</span>
+              </div>
 
-          {/* Moderate Risk */}
-          <div className="bg-slate-800/80 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-amber-300 block">Moderate Risk</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-amber-400">{summary?.moderate_risk_count}</span>
-              <AlertTriangle className="w-4 h-4 text-amber-400 opacity-80" />
-            </div>
-            <span className="text-[10px] text-amber-300/80 mt-1 block">40% – 60% mastitis risk</span>
-          </div>
+              {/* Moderate Risk */}
+              <div className="bg-slate-800/80 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-amber-300 block">{t('moderateRisk')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-amber-400">{summary?.moderate_risk_count}</span>
+                  <AlertTriangle className="w-4 h-4 text-amber-400 opacity-80" />
+                </div>
+                <span className="text-[10px] text-amber-300/80 mt-1 block">40% – 60% mastitis risk</span>
+              </div>
 
-          {/* Low Risk */}
-          <div className="bg-slate-800/80 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-blue-300 block">Low Risk</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-blue-400">{summary?.low_risk_count}</span>
-              <ShieldCheck className="w-4 h-4 text-blue-400 opacity-80" />
-            </div>
-            <span className="text-[10px] text-blue-300/80 mt-1 block">20% – 40% mastitis risk</span>
-          </div>
+              {/* Low Risk */}
+              <div className="bg-slate-800/80 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-blue-300 block">{t('lowRisk')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-blue-400">{summary?.low_risk_count}</span>
+                  <ShieldCheck className="w-4 h-4 text-blue-400 opacity-80" />
+                </div>
+                <span className="text-[10px] text-blue-300/80 mt-1 block">20% – 40% mastitis risk</span>
+              </div>
 
-          {/* No Risk */}
-          <div className="bg-slate-800/80 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-sm flex flex-col justify-between">
-            <span className="text-[11px] font-medium text-emerald-300 block">No Risk</span>
-            <div className="mt-2 flex items-baseline justify-between">
-              <span className="text-2xl font-black text-emerald-400">{summary?.no_risk_count}</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 opacity-80" />
-            </div>
-            <span className="text-[10px] text-emerald-300/80 mt-1 block">&le; 20% healthy baseline</span>
-          </div>
+              {/* No Risk */}
+              <div className="bg-slate-800/80 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-sm flex flex-col justify-between">
+                <span className="text-[11px] font-medium text-emerald-300 block">{t('noRisk')}</span>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-emerald-400">{summary?.no_risk_count}</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 opacity-80" />
+                </div>
+                <span className="text-[10px] text-emerald-300/80 mt-1 block">&le; 20% healthy baseline</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* ------------------------------------------------------------------- */}
-      {/* 2. Early Warning Section                                           */}
+      {/* 2. Early Warning Section                                            */}
       {/* ------------------------------------------------------------------- */}
       <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-700/50 pb-3">
@@ -224,61 +302,78 @@ export const Dashboard: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* High-Risk Animals */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-rose-500/30 flex items-start space-x-3.5">
-            <div className="p-3 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 font-medium block">High-Risk Animals</span>
-              <span className="text-2xl font-black text-rose-400 block mt-0.5">{summary?.high_risk_count}</span>
-              <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                Immediate clinical review recommended for milking anomalies
-              </p>
-            </div>
-          </div>
+          {summaryLoading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                <Skeleton className="h-10 w-10 rounded-lg mb-2" />
+                <Skeleton className="h-3 w-24 mb-2" />
+                <Skeleton className="h-8 w-16 mb-1" />
+                <Skeleton className="h-2 w-32" />
+              </div>
+            ))
+          ) : (
+            <>
+              {/* High-Risk Animals */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-rose-500/30 flex items-start space-x-3.5">
+                <div className="p-3 rounded-lg bg-rose-500/15 text-rose-400 shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400 font-medium block">High-Risk Animals</span>
+                  <span className="text-2xl font-black text-rose-400 block mt-0.5">{summary?.high_risk_count ?? '—'}</span>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                    Immediate clinical review recommended for milking anomalies
+                  </p>
+                </div>
+              </div>
 
-          {/* Potential Mastitis Risk within 7-14 Days */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-amber-500/30 flex items-start space-x-3.5">
-            <div className="p-3 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
-              <Clock className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 font-medium block">Risk within 7–14 Days</span>
-              <span className="text-2xl font-black text-amber-400 block mt-0.5">{atRiskCount}</span>
-              <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                Moderate + High risk cows flagged for pre-emptive care
-              </p>
-            </div>
-          </div>
+              {/* Potential Mastitis Risk within 7-14 Days */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-amber-500/30 flex items-start space-x-3.5">
+                <div className="p-3 rounded-lg bg-amber-500/15 text-amber-400 shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400 font-medium block">Risk within 7–14 Days</span>
+                  <span className="text-2xl font-black text-amber-400 block mt-0.5">{atRiskCount}</span>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                    Moderate + High risk cows flagged for pre-emptive care
+                  </p>
+                </div>
+              </div>
 
-          {/* Active Alerts */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-purple-500/30 flex items-start space-x-3.5">
-            <div className="p-3 rounded-lg bg-purple-500/15 text-purple-400 shrink-0">
-              <Bell className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 font-medium block">Active Early Alerts</span>
-              <span className="text-2xl font-black text-purple-300 block mt-0.5">{unreviewedAlerts}</span>
-              <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                Unreviewed system alerts requiring herd health inspection
-              </p>
-            </div>
-          </div>
+              {/* Active Alerts */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-purple-500/30 flex items-start space-x-3.5">
+                <div className="p-3 rounded-lg bg-purple-500/15 text-purple-400 shrink-0">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400 font-medium block">Active Early Alerts</span>
+                  <span className="text-2xl font-black text-purple-300 block mt-0.5">
+                    {alertsLoading ? <Skeleton className="h-8 w-10 inline-block" /> : unreviewedAlerts}
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                    Unreviewed system alerts requiring herd health inspection
+                  </p>
+                </div>
+              </div>
 
-          {/* SMS Alerts Sent */}
-          <div className="p-4 rounded-xl bg-slate-900/60 border border-emerald-500/30 flex items-start space-x-3.5">
-            <div className="p-3 rounded-lg bg-emerald-500/15 text-emerald-400 shrink-0">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xs text-slate-400 font-medium block">SMS Alerts Sent</span>
-              <span className="text-2xl font-black text-emerald-400 block mt-0.5">{smsCount}</span>
-              <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                Early-warning SMS dispatches logged to farmer/veterinarian
-              </p>
-            </div>
-          </div>
+              {/* SMS Alerts Sent */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-emerald-500/30 flex items-start space-x-3.5">
+                <div className="p-3 rounded-lg bg-emerald-500/15 text-emerald-400 shrink-0">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400 font-medium block">SMS Alerts Sent</span>
+                  <span className="text-2xl font-black text-emerald-400 block mt-0.5">
+                    {analyticsLoading ? <Skeleton className="h-8 w-10 inline-block" /> : smsCount}
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                    Early-warning SMS dispatches logged to farmer/veterinarian
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -294,44 +389,52 @@ export const Dashboard: React.FC = () => {
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                 <span>3. Herd Risk Distribution</span>
               </h3>
-              <span className="text-[11px] font-semibold text-slate-400">Total: {summary?.total_animals}</span>
+              <span className="text-[11px] font-semibold text-slate-400">
+                Total: {summaryLoading ? '…' : summary?.total_animals}
+              </span>
             </div>
             <p className="text-xs text-slate-400">Forecasted mastitis risk category breakdown</p>
           </div>
 
           <div className="h-56 w-full my-3">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={riskDistData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={82}
-                  paddingAngle={4}
-                  dataKey="count"
-                >
-                  {riskDistData.map((entry: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const item = payload[0].payload;
-                      const pct = summary?.total_animals ? ((item.count / summary.total_animals) * 100).toFixed(1) : '0';
-                      return (
-                        <div className="bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-xs font-semibold text-white shadow-xl">
-                          <p style={{ color: item.color }} className="font-bold">{item.name}</p>
-                          <p className="text-slate-300 mt-0.5">{item.count} cows ({pct}%)</p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {analyticsLoading || summaryLoading ? (
+              <div className="h-full flex items-center justify-center">
+                <Skeleton className="h-40 w-40 rounded-full" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={riskDistData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={82}
+                    paddingAngle={4}
+                    dataKey="count"
+                  >
+                    {riskDistData.map((entry: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const item = payload[0].payload;
+                        const pct = summary?.total_animals ? ((item.count / summary.total_animals) * 100).toFixed(1) : '0';
+                        return (
+                          <div className="bg-slate-900 border border-slate-700 p-2.5 rounded-lg text-xs font-semibold text-white shadow-xl">
+                            <p style={{ color: item.color }} className="font-bold">{item.name}</p>
+                            <p className="text-slate-300 mt-0.5">{item.count} cows ({pct}%)</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-slate-700/50">
@@ -340,7 +443,7 @@ export const Dashboard: React.FC = () => {
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                 <span className="text-emerald-300 font-medium">No Risk</span>
               </div>
-              <span className="font-bold text-white">{summary?.no_risk_count}</span>
+              <span className="font-bold text-white">{summaryLoading ? '…' : summary?.no_risk_count}</span>
             </div>
 
             <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-blue-500/20">
@@ -348,7 +451,7 @@ export const Dashboard: React.FC = () => {
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
                 <span className="text-blue-300 font-medium">Low Risk</span>
               </div>
-              <span className="font-bold text-white">{summary?.low_risk_count}</span>
+              <span className="font-bold text-white">{summaryLoading ? '…' : summary?.low_risk_count}</span>
             </div>
 
             <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-amber-500/20">
@@ -356,7 +459,7 @@ export const Dashboard: React.FC = () => {
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                 <span className="text-amber-300 font-medium">Moderate</span>
               </div>
-              <span className="font-bold text-white">{summary?.moderate_risk_count}</span>
+              <span className="font-bold text-white">{summaryLoading ? '…' : summary?.moderate_risk_count}</span>
             </div>
 
             <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-rose-500/20">
@@ -364,7 +467,7 @@ export const Dashboard: React.FC = () => {
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
                 <span className="text-rose-300 font-medium">High Risk</span>
               </div>
-              <span className="font-bold text-white">{summary?.high_risk_count}</span>
+              <span className="font-bold text-white">{summaryLoading ? '…' : summary?.high_risk_count}</span>
             </div>
           </div>
         </div>
@@ -437,103 +540,123 @@ export const Dashboard: React.FC = () => {
 
           {/* 5 Indicator Stat Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-            {/* Avg Milk Yield */}
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-              <div className="flex items-center space-x-1.5 text-blue-400 font-semibold mb-1">
-                <Droplet className="w-3.5 h-3.5" />
-                <span>Milk Yield</span>
-              </div>
-              <span className="text-lg font-black text-white">{summary?.average_milk_yield} L/day</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &gt; 15 L</span>
-            </div>
+            {summaryLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                  <Skeleton className="h-3 w-20 mb-2" />
+                  <Skeleton className="h-6 w-24 mb-1" />
+                  <Skeleton className="h-2 w-16" />
+                </div>
+              ))
+            ) : (
+              <>
+                {/* Avg Milk Yield */}
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                  <div className="flex items-center space-x-1.5 text-blue-400 font-semibold mb-1">
+                    <Droplet className="w-3.5 h-3.5" />
+                    <span>Milk Yield</span>
+                  </div>
+                  <span className="text-lg font-black text-white">{summary?.average_milk_yield} L/day</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &gt; 15 L</span>
+                </div>
 
-            {/* Avg SCC */}
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-              <div className="flex items-center space-x-1.5 text-emerald-400 font-semibold mb-1">
-                <Activity className="w-3.5 h-3.5" />
-                <span>Avg SCC</span>
-              </div>
-              <span className="text-lg font-black text-white">{Math.round(summary?.average_scc || 0).toLocaleString()}</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">cells/ml</span>
-            </div>
+                {/* Avg SCC */}
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                  <div className="flex items-center space-x-1.5 text-emerald-400 font-semibold mb-1">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Avg SCC</span>
+                  </div>
+                  <span className="text-lg font-black text-white">{Math.round(summary?.average_scc || 0).toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">cells/ml</span>
+                </div>
 
-            {/* Avg Conductivity */}
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-              <div className="flex items-center space-x-1.5 text-amber-400 font-semibold mb-1">
-                <Zap className="w-3.5 h-3.5" />
-                <span>Conductivity</span>
-              </div>
-              <span className="text-lg font-black text-white">{summary?.average_conductivity} mS/cm</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &lt; 5.5</span>
-            </div>
+                {/* Avg Conductivity */}
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                  <div className="flex items-center space-x-1.5 text-amber-400 font-semibold mb-1">
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Conductivity</span>
+                  </div>
+                  <span className="text-lg font-black text-white">{summary?.average_conductivity} mS/cm</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &lt; 5.5</span>
+                </div>
 
-            {/* Avg Activity */}
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
-              <div className="flex items-center space-x-1.5 text-purple-400 font-semibold mb-1">
-                <Activity className="w-3.5 h-3.5" />
-                <span>Activity</span>
-              </div>
-              <span className="text-lg font-black text-white">{summary?.average_activity}%</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Baseline: 70–95%</span>
-            </div>
+                {/* Avg Activity */}
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50">
+                  <div className="flex items-center space-x-1.5 text-purple-400 font-semibold mb-1">
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Activity</span>
+                  </div>
+                  <span className="text-lg font-black text-white">{summary?.average_activity}%</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Baseline: 70–95%</span>
+                </div>
 
-            {/* Avg Rumination */}
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50 col-span-2 sm:col-span-1">
-              <div className="flex items-center space-x-1.5 text-cyan-400 font-semibold mb-1">
-                <HeartPulse className="w-3.5 h-3.5" />
-                <span>Rumination</span>
-              </div>
-              <span className="text-lg font-black text-white">{Math.round(summary?.average_rumination || 0)} min</span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &gt; 420 min</span>
-            </div>
+                {/* Avg Rumination */}
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-700/50 col-span-2 sm:col-span-1">
+                  <div className="flex items-center space-x-1.5 text-cyan-400 font-semibold mb-1">
+                    <HeartPulse className="w-3.5 h-3.5" />
+                    <span>Rumination</span>
+                  </div>
+                  <span className="text-lg font-black text-white">{Math.round(summary?.average_rumination || 0)} min</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Normal: &gt; 420 min</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Primary Trend Chart based on selected indicator */}
           <div className="h-44 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              {selectedIndicator === 'scc' ? (
-                <LineChart data={analytics?.scc_trend || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={['auto', 'auto']} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="avg_scc" name="SCC (cells/ml)" stroke="#10B981" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              ) : selectedIndicator === 'cond' ? (
-                <LineChart data={analytics?.conductivity_trend || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[4.8, 6.2]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="avg_conductivity" name="Conductivity (mS/cm)" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              ) : selectedIndicator === 'act' ? (
-                <LineChart data={analytics?.activity_trend || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[65, 95]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="avg_activity" name="Activity (%)" stroke="#A855F7" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              ) : selectedIndicator === 'rum' ? (
-                <LineChart data={analytics?.rumination_trend || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[380, 540]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="avg_rumination" name="Rumination (min/day)" stroke="#06B6D4" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              ) : (
-                // 'all' or 'yield' default
-                <LineChart data={analytics?.milk_yield_trend || []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[10, 16]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="avg_yield" name="Milk Yield (L/day)" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
-              )}
-            </ResponsiveContainer>
+            {analyticsLoading ? (
+              <div className="h-full flex flex-col justify-end gap-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className={`w-full`} style={{ height: `${20 + i * 8}%` }} />
+                ))}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                {selectedIndicator === 'scc' ? (
+                  <LineChart data={analytics?.scc_trend || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={['auto', 'auto']} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="avg_scc" name="SCC (cells/ml)" stroke="#10B981" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                ) : selectedIndicator === 'cond' ? (
+                  <LineChart data={analytics?.conductivity_trend || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[4.8, 6.2]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="avg_conductivity" name="Conductivity (mS/cm)" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                ) : selectedIndicator === 'act' ? (
+                  <LineChart data={analytics?.activity_trend || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[65, 95]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="avg_activity" name="Activity (%)" stroke="#A855F7" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                ) : selectedIndicator === 'rum' ? (
+                  <LineChart data={analytics?.rumination_trend || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[380, 540]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="avg_rumination" name="Rumination (min/day)" stroke="#06B6D4" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                ) : (
+                  // 'all' or 'yield' default
+                  <LineChart data={analytics?.milk_yield_trend || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} domain={[10, 16]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="avg_yield" name="Milk Yield (L/day)" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                )}
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>
@@ -546,17 +669,17 @@ export const Dashboard: React.FC = () => {
           <div>
             <h3 className="text-base font-bold text-white flex items-center space-x-2">
               <ShieldAlert className="w-4 h-4 text-rose-400" />
-              <span>5. High-Risk Animal Table</span>
+              <span>{t('highRiskListTitle')}</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Animals flagged with elevated probability within the 7–14 day forecast window
+              {t('dashboardSubtitle')}
             </p>
           </div>
           <Link
             to="/animals"
             className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center space-x-1"
           >
-            <span>View All Animals</span>
+            <span>{t('viewDirectoryBtn')}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -565,20 +688,30 @@ export const Dashboard: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-700">
               <tr>
-                <th className="p-3">Animal ID</th>
-                <th className="p-3">Farm</th>
-                <th className="p-3">Breed</th>
-                <th className="p-3">Milk Yield</th>
-                <th className="p-3">SCC</th>
-                <th className="p-3">Risk Score</th>
-                <th className="p-3">Risk Category</th>
-                <th className="p-3">Forecast Window</th>
-                <th className="p-3">Alert Status</th>
-                <th className="p-3">Action</th>
+                <th className="p-3">{t('cowLabel')} ID</th>
+                <th className="p-3">{t('farm')}</th>
+                <th className="p-3">{t('breed')}</th>
+                <th className="p-3">{t('yield')}</th>
+                <th className="p-3">{t('scc')}</th>
+                <th className="p-3">{t('riskScore')}</th>
+                <th className="p-3">{t('category')}</th>
+                <th className="p-3">{t('forecastWindowLabel')}</th>
+                <th className="p-3">{t('filterStatus')}</th>
+                <th className="p-3">{t('action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {summary?.high_risk_animals && summary.high_risk_animals.length > 0 ? (
+              {summaryLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 10 }).map((__, j) => (
+                      <td key={j} className="p-3">
+                        <Skeleton className="h-4 w-full" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : summary?.high_risk_animals && summary.high_risk_animals.length > 0 ? (
                 summary.high_risk_animals.slice(0, 8).map((anim) => (
                   <tr key={anim.animal_id} className="hover:bg-slate-800/40 transition">
                     <td className="p-3 font-bold text-white font-mono">{anim.animal_id}</td>
@@ -615,7 +748,7 @@ export const Dashboard: React.FC = () => {
                         to={`/animals/${anim.animal_id}`}
                         className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 font-semibold transition"
                       >
-                        Inspect
+                        {t('inspect')}
                       </Link>
                     </td>
                   </tr>
@@ -623,7 +756,7 @@ export const Dashboard: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={10} className="p-6 text-center text-slate-500">
-                    No high-risk animals flagged in the current forecast window.
+                    {t('noHighRiskAnimalsMsg')}
                   </td>
                 </tr>
               )}
@@ -640,17 +773,17 @@ export const Dashboard: React.FC = () => {
           <div>
             <h3 className="text-base font-bold text-white flex items-center space-x-2">
               <Bell className="w-4 h-4 text-purple-400" />
-              <span>6. Recent Alerts</span>
+              <span>{t('alertsTitle')}</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Live alert notifications, automated risk triggers, and SMS dispatch status
+              {t('alertsSubtitle')}
             </p>
           </div>
           <Link
             to="/alerts"
             className="text-xs text-purple-400 hover:text-purple-300 font-semibold flex items-center space-x-1"
           >
-            <span>Manage All Alerts</span>
+            <span>{t('viewAlertsBtn')}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -659,16 +792,26 @@ export const Dashboard: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-700">
               <tr>
-                <th className="p-3">Animal</th>
-                <th className="p-3">Risk Level</th>
-                <th className="p-3">Time</th>
-                <th className="p-3">Alert Type</th>
-                <th className="p-3">SMS Status</th>
-                <th className="p-3">Action</th>
+                <th className="p-3">{t('cowLabel')}</th>
+                <th className="p-3">{t('riskLevel')}</th>
+                <th className="p-3">{t('today')}</th>
+                <th className="p-3">{t('category')}</th>
+                <th className="p-3">{t('filterStatus')}</th>
+                <th className="p-3">{t('action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {alerts && alerts.length > 0 ? (
+              {alertsLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 6 }).map((__, j) => (
+                      <td key={j} className="p-3">
+                        <Skeleton className="h-4 w-full" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : alerts && alerts.length > 0 ? (
                 alerts.slice(0, 6).map((a) => {
                   const formattedTime = a.created_at
                     ? new Date(a.created_at).toLocaleDateString(undefined, {
@@ -702,7 +845,7 @@ export const Dashboard: React.FC = () => {
                         >
                           {a.risk_score ? `${a.risk_score}%` : a.severity}
                         </span>
-                        <span className="text-[10px] text-slate-400 block">{a.risk_category || a.severity}</span>
+                        <span className="text-[10px] text-slate-400 block">{translateRiskCategory(a.risk_category || a.severity)}</span>
                       </td>
                       <td className="p-3 text-slate-400 whitespace-nowrap">
                         <span className="flex items-center space-x-1">
@@ -724,7 +867,7 @@ export const Dashboard: React.FC = () => {
                           }`}
                         >
                           <MessageSquare className="w-2.5 h-2.5" />
-                          <span>{a.sms_status || 'Not Dispatched'}</span>
+                          <span>{a.sms_status || 'Active'}</span>
                         </span>
                       </td>
                       <td className="p-3">
@@ -732,7 +875,7 @@ export const Dashboard: React.FC = () => {
                           to={`/animals/${a.animal_id}`}
                           className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold transition"
                         >
-                          Details
+                          {t('inspect')}
                         </Link>
                       </td>
                     </tr>
@@ -741,7 +884,7 @@ export const Dashboard: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={6} className="p-6 text-center text-slate-500">
-                    No active alerts on record.
+                    {t('noAlertsMsg')}
                   </td>
                 </tr>
               )}
