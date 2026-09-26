@@ -11,13 +11,16 @@ import { Recommendations } from './pages/Recommendations';
 import { Settings } from './pages/Settings';
 import { SensorSimulator } from './pages/SensorSimulator';
 
+import { LanguageProvider } from './i18n/LanguageContext';
+
 export const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <Router>
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased">
-        <Navbar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+    <LanguageProvider>
+      <Router>
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased">
+          <Navbar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
 
         <div className="flex flex-1 overflow-hidden">
           <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
@@ -38,7 +41,8 @@ export const App: React.FC = () => {
         </div>
       </div>
     </Router>
-  );
+  </LanguageProvider>
+);
 };
 
 

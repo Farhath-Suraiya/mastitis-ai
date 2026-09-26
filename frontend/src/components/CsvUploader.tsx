@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Upload, FileText, CheckCircle2, AlertTriangle, Table } from 'lucide-react';
 import { uploadCsvData } from '../services/api';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export const CsvUploader: React.FC = () => {
+  const { t } = useLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export const CsvUploader: React.FC = () => {
   return (
     <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-6 shadow-lg space-y-5">
       <div>
-        <h3 className="text-base font-semibold text-white">Dataset CSV Upload & Validation</h3>
+        <h3 className="text-base font-semibold text-white">{t('csvUploadTitle')}</h3>
         <p className="text-xs text-slate-400">
           Upload farm telemetry or historical health records for structural validation and preview.
         </p>
@@ -42,7 +44,7 @@ export const CsvUploader: React.FC = () => {
       <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-2xl p-6 text-center transition bg-slate-900/40">
         <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
         <p className="text-sm font-medium text-slate-200">
-          {file ? file.name : 'Select or drag CSV file here'}
+          {file ? file.name : t('dragDropCsv')}
         </p>
         <p className="text-xs text-slate-500 mt-1">Supports standard bovine mastitis CSV structure</p>
 

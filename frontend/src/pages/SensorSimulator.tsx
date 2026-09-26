@@ -1,58 +1,92 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Cpu,
+  Play,
+  Square,
   RefreshCw,
-  Zap,
+  Activity,
   CheckCircle2,
   AlertTriangle,
-  ShieldAlert,
+  Flame,
+  Droplets,
   Clock,
-  ArrowRight,
-  MessageSquare,
-  Bell,
-  Activity,
-  Droplet,
-  Info,
   Thermometer,
-  Sliders,
-  Database,
-  Search,
+  Gauge,
+  Wheat,
+  Wind,
 } from 'lucide-react';
-import { Animal, SensorSimulateRequest, PredictionResponse, SMSNotification } from '../types';
+import { Animal, SensorSimulateRequest, PredictionResponse } from '../types';
 import { getAnimals, getAnimalDetail, simulateSensorData } from '../services/api';
-import { RiskBadge } from '../components/RiskBadge';
+import { useLanguage } from '../i18n/LanguageContext';
+
+interface VitalsState {
+  body_temperature_c: number;
+  udder_surface_temperature_c: number;
+  milk_conductivity_ms_cm: number;
+  milk_temperature_c: number;
+  milk_yield_l_day: number;
+  scc_cells_ml: number;
+  activity_percent: number;
+  rumination_min_day: number;
+  water_intake_l_day: number;
+  feeding_behavior_score: number;
+  ambient_temperature_c: number;
+  relative_humidity_percent: number;
+}
+
+const DEFAULT_INITIAL_VITALS: VitalsState = {
+  body_temperature_c: 38.4,
+  udder_surface_temperature_c: 35.0,
+  milk_conductivity_ms_cm: 4.9,
+  milk_temperature_c: 34.8,
+  milk_yield_l_day: 22.0,
+  scc_cells_ml: 95000,
+  activity_percent: 88.0,
+  rumination_min_day: 490.0,
+  water_intake_l_day: 78.0,
+  feeding_behavior_score: 8.5,
+  ambient_temperature_c: 24.0,
+  relative_humidity_percent: 62.0,
+};
 
 export const SensorSimulator: React.FC = () => {
+  const { t, translateRiskCategory } = useLanguage();
   const [animals, setAnimals] = useState<Animal[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedAnimalId, setSelectedAnimalId] = useState<string>('');
   const [currentAnimal, setCurrentAnimal] = useState<Animal | null>(null);
   const [loadingAnimals, setLoadingAnimals] = useState(true);
-  const [runningForecast, setRunningForecast] = useState(false);
 
-  // Baseline values (previous readings)
-  const [baseline, setBaseline] = useState<Record<string, number>>({});
+  // Simulation running state
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [vitals, setVitals] = useState<VitalsState>(DEFAULT_INITIAL_VITALS);
+  const [loadingForecast, setLoadingForecast] = useState(false);
 
-  // Simulated IoT readings (new values)
-  const [simulated, setSimulated] = useState<Record<string, number>>({});
-
-  // Prediction result after running forecast
+  // Result from backend prediction pipeline after Stop Simulation
   const [forecastResult, setForecastResult] = useState<{
-    assessment: PredictionResponse;
-    simulatedSms: any;
+    animal_id: string;
+    risk_score: number;
+    risk_category: string;
+    forecast: string;
     alertCreated: boolean;
-    notice: string;
   } | null>(null);
 
-  // Load animal list on mount
+  const initialVitalsRef = useRef<VitalsState>(DEFAULT_INITIAL_VITALS);
+  const vitalsRef = useRef<VitalsState>(DEFAULT_INITIAL_VITALS);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const tickCountRef = useRef<number>(0);
+
+  // Load up to 500 animals on mount
   useEffect(() => {
     const fetchAnimalList = async () => {
       setLoadingAnimals(true);
       try {
-        const res = await getAnimals({ limit: 50 });
+        const res = await getAnimals({ limit: 500 });
         setAnimals(res.animals);
         if (res.animals.length > 0) {
-          const first = res.animals[0];
-          setSelectedAnimalId(first.animal_id);
+          // Default to COW-486 if present, else first animal
+          const target = res.animals.find((a) => a.animal_id === 'COW-486') || res.animals[0];
+          setSelectedAnimalId(target.animal_id);
         }
       } catch (err) {
         console.error('Error fetching animals:', err);
@@ -63,34 +97,49 @@ export const SensorSimulator: React.FC = () => {
     fetchAnimalList();
   }, []);
 
-  // When selected animal changes, fetch full details and set baseline
+  // Filtered animals based on search query
+  const filteredAnimals = animals.filter((a) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return a.animal_id.toLowerCase().includes(q) || (a.breed && a.breed.toLowerCase().includes(q));
+  });
+
+  // When selected cow changes, fetch profile & set initial vitals
   useEffect(() => {
     if (!selectedAnimalId) return;
+
+    // Stop active simulation if cow changes
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsSimulating(false);
+    setForecastResult(null);
 
     const loadAnimalData = async () => {
       try {
         const anim = await getAnimalDetail(selectedAnimalId);
         setCurrentAnimal(anim);
-        setForecastResult(null);
 
-        const baseValues: Record<string, number> = {
-          body_temperature_c: anim.body_temperature_c ?? 38.5,
-          udder_surface_temperature_c: anim.udder_surface_temperature_c ?? 35.5,
-          milk_temperature_c: anim.milk_temperature_c ?? 35.0,
-          milk_conductivity_ms_cm: anim.milk_conductivity_ms_cm ?? 5.2,
-          milk_yield_l_day: anim.milk_yield_l_day ?? 18.0,
-          activity_percent: anim.activity_percent ?? 82.0,
-          rumination_min_day: anim.rumination_min_day ?? 480.0,
-          water_intake_l_day: anim.water_intake_l_day ?? 70.0,
-          feeding_behavior_score: anim.feeding_behavior_score ?? 8.0,
-          ambient_temperature_c: anim.ambient_temperature_c ?? 26.0,
-          relative_humidity_percent: anim.relative_humidity_percent ?? 65.0,
-          scc_cells_ml: anim.scc_cells_ml ?? 120000,
+        // Reference / initial vitals from cow's profile or reference standard
+        const initial: VitalsState = {
+          body_temperature_c: anim.body_temperature_c ?? 38.4,
+          udder_surface_temperature_c: anim.udder_surface_temperature_c ?? 35.0,
+          milk_conductivity_ms_cm: anim.milk_conductivity_ms_cm ?? 4.9,
+          milk_temperature_c: anim.milk_temperature_c ?? 34.8,
+          milk_yield_l_day: anim.milk_yield_l_day ?? 22.0,
+          scc_cells_ml: anim.scc_cells_ml ?? 95000,
+          activity_percent: anim.activity_percent ?? 88.0,
+          rumination_min_day: anim.rumination_min_day ?? 490.0,
+          water_intake_l_day: anim.water_intake_l_day ?? 78.0,
+          feeding_behavior_score: anim.feeding_behavior_score ?? 8.5,
+          ambient_temperature_c: anim.ambient_temperature_c ?? 24.0,
+          relative_humidity_percent: anim.relative_humidity_percent ?? 62.0,
         };
 
-        setBaseline(baseValues);
-        // Initially, simulated equals baseline
-        setSimulated(baseValues);
+        initialVitalsRef.current = initial;
+        vitalsRef.current = initial;
+        setVitals(initial);
       } catch (err) {
         console.error('Error loading animal details:', err);
       }
@@ -99,670 +148,434 @@ export const SensorSimulator: React.FC = () => {
     loadAnimalData();
   }, [selectedAnimalId]);
 
-  // Realistic variation generators based on the animal's existing baseline
-  const handleGenerateVariation = (mode: 'healthy_variation' | 'mastitis_warning' | 'heat_stress' | 'reset') => {
-    if (!currentAnimal) return;
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+
+  // START SIMULATION: Continuously fluctuate vitals around cow's own baseline
+  const handleStartSimulation = () => {
+    if (isSimulating) return;
+    setIsSimulating(true);
     setForecastResult(null);
+    tickCountRef.current = 0;
 
-    if (mode === 'reset') {
-      setSimulated({ ...baseline });
-      return;
-    }
+    intervalRef.current = setInterval(() => {
+      tickCountRef.current += 1;
+      const base = initialVitalsRef.current;
 
-    if (mode === 'healthy_variation') {
-      // Small, realistic normal physiological fluctuations around baseline
-      setSimulated({
-        body_temperature_c: parseFloat((baseline.body_temperature_c + (Math.random() * 0.4 - 0.2)).toFixed(1)),
-        udder_surface_temperature_c: parseFloat((baseline.udder_surface_temperature_c + (Math.random() * 0.4 - 0.2)).toFixed(1)),
-        milk_temperature_c: parseFloat((baseline.milk_temperature_c + (Math.random() * 0.4 - 0.2)).toFixed(1)),
-        milk_conductivity_ms_cm: parseFloat(Math.max(4.2, Math.min(5.4, baseline.milk_conductivity_ms_cm + (Math.random() * 0.2 - 0.1))).toFixed(2)),
-        milk_yield_l_day: parseFloat(Math.max(15.0, (baseline.milk_yield_l_day + (Math.random() * 2.0 - 1.0))).toFixed(1)),
-        activity_percent: parseFloat(Math.max(75.0, Math.min(95.0, baseline.activity_percent + (Math.random() * 6.0 - 3.0))).toFixed(1)),
-        rumination_min_day: Math.round(Math.max(420, baseline.rumination_min_day + (Math.random() * 30 - 15))),
-        water_intake_l_day: parseFloat((baseline.water_intake_l_day + (Math.random() * 4.0 - 2.0)).toFixed(1)),
-        feeding_behavior_score: parseFloat(Math.max(7.0, Math.min(9.5, baseline.feeding_behavior_score + (Math.random() * 0.6 - 0.3))).toFixed(1)),
-        ambient_temperature_c: parseFloat((baseline.ambient_temperature_c + (Math.random() * 2.0 - 1.0)).toFixed(1)),
-        relative_humidity_percent: parseFloat(Math.max(45.0, Math.min(75.0, baseline.relative_humidity_percent + (Math.random() * 4.0 - 2.0))).toFixed(1)),
-        scc_cells_ml: Math.round(Math.max(60000, Math.min(180000, baseline.scc_cells_ml + (Math.random() * 20000 - 10000)))),
-      });
-    } else if (mode === 'mastitis_warning') {
-      // Clinically plausible pre-clinical mastitis onset:
-      // + elevated udder and body thermal readings
-      // + significant drop in milk yield (-25% to -40%)
-      // + sharp jump in conductivity (+0.8 to +1.6 mS/cm)
-      // + depressed rumination & feeding behavior
-      // + elevated SCC (400k - 850k cells/ml)
-      const yieldDrop = Math.max(4.0, baseline.milk_yield_l_day * (0.35 + Math.random() * 0.15));
-      setSimulated({
-        body_temperature_c: parseFloat((39.2 + Math.random() * 0.6).toFixed(1)),
-        udder_surface_temperature_c: parseFloat((37.0 + Math.random() * 0.8).toFixed(1)),
-        milk_temperature_c: parseFloat((36.5 + Math.random() * 0.5).toFixed(1)),
-        milk_conductivity_ms_cm: parseFloat((6.2 + Math.random() * 0.9).toFixed(2)),
-        milk_yield_l_day: parseFloat(Math.max(3.5, baseline.milk_yield_l_day - yieldDrop).toFixed(1)),
-        activity_percent: parseFloat(Math.max(45.0, baseline.activity_percent - (15.0 + Math.random() * 10.0)).toFixed(1)),
-        rumination_min_day: Math.round(Math.max(220, baseline.rumination_min_day - (100 + Math.random() * 60))),
-        water_intake_l_day: parseFloat(Math.max(40.0, baseline.water_intake_l_day - 12.0).toFixed(1)),
-        feeding_behavior_score: parseFloat(Math.max(3.5, baseline.feeding_behavior_score - 2.5).toFixed(1)),
-        ambient_temperature_c: parseFloat(baseline.ambient_temperature_c.toFixed(1)),
-        relative_humidity_percent: parseFloat(baseline.relative_humidity_percent.toFixed(1)),
-        scc_cells_ml: Math.round(480000 + Math.random() * 350000),
-      });
-    } else if (mode === 'heat_stress') {
-      // Thermal environmental challenge
-      setSimulated({
-        ...baseline,
-        ambient_temperature_c: parseFloat((34.5 + Math.random() * 2.5).toFixed(1)),
-        relative_humidity_percent: parseFloat((78.0 + Math.random() * 8.0).toFixed(1)),
-        body_temperature_c: parseFloat((39.0 + Math.random() * 0.4).toFixed(1)),
-        water_intake_l_day: parseFloat((baseline.water_intake_l_day + 22.0).toFixed(1)),
-        rumination_min_day: Math.round(Math.max(340, baseline.rumination_min_day - 40)),
-      });
-    }
+      const jitter = (range: number) => (Math.random() * 2 - 1) * range;
+
+      const next: VitalsState = {
+        body_temperature_c: parseFloat(
+          Math.max(37.0, Math.min(41.5, base.body_temperature_c + jitter(0.12))).toFixed(2)
+        ),
+        udder_surface_temperature_c: parseFloat(
+          Math.max(33.0, Math.min(39.5, base.udder_surface_temperature_c + jitter(0.12))).toFixed(2)
+        ),
+        milk_conductivity_ms_cm: parseFloat(
+          Math.max(3.5, Math.min(9.5, base.milk_conductivity_ms_cm + jitter(0.08))).toFixed(2)
+        ),
+        milk_temperature_c: parseFloat(
+          Math.max(33.0, Math.min(39.0, base.milk_temperature_c + jitter(0.1))).toFixed(2)
+        ),
+        milk_yield_l_day: parseFloat(
+          Math.max(2.0, Math.min(45.0, base.milk_yield_l_day + jitter(0.2))).toFixed(1)
+        ),
+        scc_cells_ml: Math.max(
+          40000,
+          Math.min(1200000, Math.round(base.scc_cells_ml + jitter(Math.max(2000, base.scc_cells_ml * 0.025))))
+        ),
+        activity_percent: parseFloat(
+          Math.max(20, Math.min(100, base.activity_percent + jitter(1.2))).toFixed(1)
+        ),
+        rumination_min_day: Math.max(
+          120,
+          Math.min(700, Math.round(base.rumination_min_day + jitter(5)))
+        ),
+        water_intake_l_day: parseFloat(
+          Math.max(20, Math.min(150, base.water_intake_l_day + jitter(1.0))).toFixed(1)
+        ),
+        feeding_behavior_score: parseFloat(
+          Math.max(1.0, Math.min(10.0, base.feeding_behavior_score + jitter(0.1))).toFixed(1)
+        ),
+        ambient_temperature_c: parseFloat((base.ambient_temperature_c + jitter(0.2)).toFixed(1)),
+        relative_humidity_percent: parseFloat(
+          Math.max(30, Math.min(95, base.relative_humidity_percent + jitter(0.5))).toFixed(1)
+        ),
+      };
+
+      vitalsRef.current = next;
+      setVitals(next);
+    }, 600);
   };
 
-  const handleUpdateParameter = (param: string, value: number) => {
-    setSimulated((prev) => ({
-      ...prev,
-      [param]: value,
-    }));
-  };
-
-  // Run AI forecast step
-  const handleRunForecast = async () => {
+  // STOP SIMULATION: Stop generation, take final values, send to ML backend
+  const handleStopSimulation = async () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsSimulating(false);
     if (!currentAnimal) return;
-    setRunningForecast(true);
+
+    setLoadingForecast(true);
     try {
+      const finalVitals = vitalsRef.current;
       const payload: SensorSimulateRequest = {
         animal_id: currentAnimal.animal_id,
-        body_temperature_c: simulated.body_temperature_c,
-        udder_surface_temperature_c: simulated.udder_surface_temperature_c,
-        milk_conductivity_ms_cm: simulated.milk_conductivity_ms_cm,
-        milk_temperature_c: simulated.milk_temperature_c,
-        milk_yield_l_day: simulated.milk_yield_l_day,
-        activity_percent: simulated.activity_percent,
-        rumination_min_day: simulated.rumination_min_day,
-        scc_cells_ml: simulated.scc_cells_ml,
-        water_intake_l_day: simulated.water_intake_l_day,
-        feeding_behavior_score: simulated.feeding_behavior_score,
-        ambient_temperature_c: simulated.ambient_temperature_c,
-        relative_humidity_percent: simulated.relative_humidity_percent,
+        body_temperature_c: finalVitals.body_temperature_c,
+        udder_surface_temperature_c: finalVitals.udder_surface_temperature_c,
+        milk_conductivity_ms_cm: finalVitals.milk_conductivity_ms_cm,
+        milk_temperature_c: finalVitals.milk_temperature_c,
+        milk_yield_l_day: finalVitals.milk_yield_l_day,
+        activity_percent: finalVitals.activity_percent,
+        rumination_min_day: finalVitals.rumination_min_day,
+        scc_cells_ml: finalVitals.scc_cells_ml,
+        water_intake_l_day: finalVitals.water_intake_l_day,
+        feeding_behavior_score: finalVitals.feeding_behavior_score,
+        ambient_temperature_c: finalVitals.ambient_temperature_c,
+        relative_humidity_percent: finalVitals.relative_humidity_percent,
       };
 
       const res = await simulateSensorData(payload);
-
       setForecastResult({
-        assessment: res.ai_assessment,
-        simulatedSms: res.simulated_sms,
+        animal_id: currentAnimal.animal_id,
+        risk_score: res.ai_assessment.risk_score,
+        risk_category: res.ai_assessment.risk_category,
+        forecast: res.ai_assessment.forecast || 'Potential mastitis risk within 7–14 days',
         alertCreated: res.alert_created,
-        notice: res.simulated_data_notice || 'Simulated IoT Data — Software simulation',
       });
     } catch (err) {
-      console.error('Error simulating sensor forecast:', err);
+      console.error('Error running forecast on simulated vitals:', err);
     } finally {
-      setRunningForecast(false);
+      setLoadingForecast(false);
     }
   };
 
-  // Parameter config table
-  const parametersList = [
+  const vitalParameters = [
     {
-      key: 'body_temperature_c',
-      label: 'Body Temperature',
-      unit: '°C',
-      step: 0.1,
-      min: 37.0,
-      max: 41.5,
-      normal: '38.0 – 39.0 °C',
-      description: 'Systemic core temperature sensor'
+      id: 1,
+      name: t('bodyTemp'),
+      value: `${vitals.body_temperature_c.toFixed(1)} °C`,
+      icon: Flame,
+      color: vitals.body_temperature_c >= 39.5 ? 'text-rose-400' : 'text-blue-400',
     },
     {
-      key: 'udder_surface_temperature_c',
-      label: 'Udder Surface Temperature',
-      unit: '°C',
-      step: 0.1,
-      min: 33.0,
-      max: 39.5,
-      normal: '34.5 – 36.2 °C',
-      description: 'Localized thermal surface telemetry'
+      id: 2,
+      name: t('udderTemp'),
+      value: `${vitals.udder_surface_temperature_c.toFixed(1)} °C`,
+      icon: Thermometer,
+      color: vitals.udder_surface_temperature_c >= 37.0 ? 'text-rose-400' : 'text-indigo-400',
     },
     {
-      key: 'milk_conductivity_ms_cm',
-      label: 'Milk Electrical Conductivity',
-      unit: 'mS/cm',
-      step: 0.05,
-      min: 4.0,
-      max: 8.5,
-      normal: '4.5 – 5.4 mS/cm',
-      description: 'Inline automated milking parlor sensor'
+      id: 3,
+      name: t('milkConductivity'),
+      value: `${vitals.milk_conductivity_ms_cm.toFixed(2)} mS/cm`,
+      icon: Activity,
+      color: vitals.milk_conductivity_ms_cm >= 6.0 ? 'text-rose-400' : 'text-emerald-400',
     },
     {
-      key: 'milk_temperature_c',
-      label: 'Milk Temperature',
-      unit: '°C',
-      step: 0.1,
-      min: 33.0,
-      max: 39.0,
-      normal: '34.5 – 35.8 °C',
-      description: 'Teat-cup inline thermistor reading'
+      id: 4,
+      name: t('milkTemp'),
+      value: `${vitals.milk_temperature_c.toFixed(1)} °C`,
+      icon: Thermometer,
+      color: vitals.milk_temperature_c >= 36.5 ? 'text-rose-400' : 'text-cyan-400',
     },
     {
-      key: 'milk_yield_l_day',
-      label: 'Daily Milk Yield',
-      unit: 'L/day',
-      step: 0.5,
-      min: 2.0,
-      max: 35.0,
-      normal: '> 16.0 L/day',
-      description: 'Parlor flowmeter daily yield'
+      id: 5,
+      name: t('milkYield'),
+      value: `${vitals.milk_yield_l_day.toFixed(1)} L/day`,
+      icon: Droplets,
+      color: vitals.milk_yield_l_day < 12.0 ? 'text-rose-400' : 'text-blue-400',
     },
     {
-      key: 'scc_cells_ml',
-      label: 'Somatic Cell Count (SCC)',
-      unit: 'cells/ml',
-      step: 10000,
-      min: 30000,
-      max: 1200000,
-      normal: '< 200,000 cells/ml',
-      description: 'Optical automated milk quality sensor'
+      id: 6,
+      name: t('scc'),
+      value: `${vitals.scc_cells_ml.toLocaleString()} cells/ml`,
+      icon: Gauge,
+      color: vitals.scc_cells_ml > 400000 ? 'text-rose-400' : 'text-teal-400',
     },
     {
-      key: 'activity_percent',
-      label: 'Cow Activity Level',
-      unit: '%',
-      step: 1.0,
-      min: 30.0,
-      max: 100.0,
-      normal: '70 – 95%',
-      description: 'Ear-tag or collar accelerometer'
+      id: 7,
+      name: t('activityLevel'),
+      value: `${vitals.activity_percent.toFixed(1)} %`,
+      icon: Activity,
+      color: vitals.activity_percent < 55.0 ? 'text-rose-400' : 'text-green-400',
     },
     {
-      key: 'rumination_min_day',
-      label: 'Daily Rumination Time',
-      unit: 'min/day',
-      step: 10,
-      min: 150,
-      max: 650,
-      normal: '420 – 550 min/day',
-      description: 'Acoustic rumination collar sensor'
+      id: 8,
+      name: t('ruminationTime'),
+      value: `${vitals.rumination_min_day} min/day`,
+      icon: Clock,
+      color: vitals.rumination_min_day < 300 ? 'text-rose-400' : 'text-violet-400',
     },
     {
-      key: 'water_intake_l_day',
-      label: 'Daily Water Intake',
-      unit: 'L/day',
-      step: 1.0,
-      min: 20.0,
-      max: 120.0,
-      normal: '60 – 90 L/day',
-      description: 'Smart trough flowmeter sensor'
+      id: 9,
+      name: t('waterIntake'),
+      value: `${vitals.water_intake_l_day.toFixed(1)} L/day`,
+      icon: Droplets,
+      color: vitals.water_intake_l_day < 35 ? 'text-rose-400' : 'text-sky-400',
     },
     {
-      key: 'feeding_behavior_score',
-      label: 'Feeding Behavior Score',
-      unit: '/10',
-      step: 0.5,
-      min: 1.0,
-      max: 10.0,
-      normal: '7.5 – 9.5 / 10',
-      description: 'Bunk visit frequency & duration metric'
+      id: 10,
+      name: t('feedingScore'),
+      value: `${vitals.feeding_behavior_score.toFixed(1)} / 10`,
+      icon: Wheat,
+      color: vitals.feeding_behavior_score < 5.0 ? 'text-rose-400' : 'text-lime-400',
     },
     {
-      key: 'ambient_temperature_c',
-      label: 'Ambient Barn Temperature',
-      unit: '°C',
-      step: 0.5,
-      min: 10.0,
-      max: 42.0,
-      normal: '18 – 28 °C',
-      description: 'Barn micro-climate environment sensor'
+      id: 11,
+      name: t('ambientTemp'),
+      value: `${vitals.ambient_temperature_c.toFixed(1)} °C`,
+      icon: Thermometer,
+      color: vitals.ambient_temperature_c > 32 ? 'text-rose-400' : 'text-orange-400',
     },
     {
-      key: 'relative_humidity_percent',
-      label: 'Barn Relative Humidity',
-      unit: '%',
-      step: 1.0,
-      min: 25.0,
-      max: 95.0,
-      normal: '50 – 70%',
-      description: 'Hygrometer ambient humidity sensor'
+      id: 12,
+      name: t('humidity'),
+      value: `${vitals.relative_humidity_percent.toFixed(1)} %`,
+      icon: Wind,
+      color: vitals.relative_humidity_percent > 80 ? 'text-rose-400' : 'text-slate-300',
     },
   ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      {/* Top Banner: Prominent Simulation Disclaimer */}
-      <div className="bg-gradient-to-r from-blue-900/40 via-slate-800/80 to-slate-800/80 border border-blue-500/30 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    <div className="space-y-6 max-w-5xl mx-auto pb-10">
+      {/* Header with Search & Selector */}
+      <div className="bg-gradient-to-r from-blue-900/40 via-slate-800/80 to-slate-800/80 border border-blue-500/30 rounded-2xl p-4 shadow-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0">
             <Cpu className="w-5 h-5" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-bold text-white">IoT Sensor Simulator</h1>
+              <h1 className="text-base font-bold text-white">{t('simulatorTitle')}</h1>
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                Simulated IoT Data
+                {t('softwareSimulation')}
               </span>
             </div>
-            <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-              <strong>SOFTWARE SIMULATION:</strong> No physical hardware or real-world IoT sensors are required. All telemetry feeds are mathematical variations applied to synthetic animal records to model early pre-clinical mastitis dynamics (7–14 day forecast window).
+            <p className="text-xs text-slate-300 mt-1">
+              {t('simulatorSubtitle')}
             </p>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-400 bg-slate-900/80 border border-slate-700 px-3 py-1.5 rounded-xl shrink-0 self-end sm:self-center font-mono">
-          Engine: Deterministic Delta Simulation
-        </div>
-      </div>
+        {/* Search and Cow Selector */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto shrink-0">
+          {/* Cow Search Option */}
+          <div className="flex flex-col gap-1.5 min-w-[170px]">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              {t('searchCow')}
+            </label>
+            <input
+              type="text"
+              placeholder={t('searchPlaceholder')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              disabled={isSimulating}
+              className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500 disabled:opacity-50 placeholder-slate-500"
+            />
+          </div>
 
-      {/* Workflow Step Indicator */}
-      <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-3 shadow-md">
-        <div className="flex items-center justify-between text-xs text-slate-300 font-medium overflow-x-auto gap-2 py-1">
-          <div className="flex items-center space-x-1.5 shrink-0 text-blue-400 font-bold">
-            <span className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-[10px]">1</span>
-            <span>Select Animal</span>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-          <div className="flex items-center space-x-1.5 shrink-0 text-indigo-400 font-bold">
-            <span className="w-5 h-5 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-[10px]">2</span>
-            <span>Generate Sensor Reading</span>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-          <div className="flex items-center space-x-1.5 shrink-0 text-amber-400 font-bold">
-            <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-[10px]">3</span>
-            <span>Compare Values</span>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-          <div className="flex items-center space-x-1.5 shrink-0 text-emerald-400 font-bold">
-            <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-[10px]">4</span>
-            <span>Run AI Forecast</span>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-          <div className="flex items-center space-x-1.5 shrink-0 text-rose-400 font-bold">
-            <span className="w-5 h-5 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-[10px]">5</span>
-            <span>Alert & SMS</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Grid: Left Controls (Step 1 & 2) & Right Comparison (Step 3 & 4) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Animal Selection & Presets */}
-        <div className="space-y-4">
-          {/* Step 1: Animal Selection */}
-          <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                <Search className="w-4 h-4 text-blue-400" />
-                <span>Step 1: Select Animal</span>
-              </h3>
-              <span className="text-[11px] text-slate-400 font-medium">50 available</span>
-            </div>
-
+          {/* Cow Dropdown Selector */}
+          <div className="flex flex-col gap-1.5 min-w-[220px]">
+            <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              {t('selectAnimal')} ({filteredAnimals.length})
+            </label>
             <select
               value={selectedAnimalId}
-              onChange={(e) => setSelectedAnimalId(e.target.value)}
-              disabled={loadingAnimals}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+              onChange={(e) => {
+                if (!isSimulating) setSelectedAnimalId(e.target.value);
+              }}
+              disabled={loadingAnimals || isSimulating}
+              className="bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500 disabled:opacity-50"
             >
-              {animals.map((a) => (
+              {filteredAnimals.map((a) => (
                 <option key={a.animal_id} value={a.animal_id}>
-                  {a.animal_id} — {a.breed} ({a.farm_id}) | Risk: {a.risk_score ? `${a.risk_score}%` : 'Pending'}
+                  {a.animal_id} — {a.breed}
                 </option>
               ))}
             </select>
-
-            {currentAnimal && (
-              <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-700/50 text-xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Current Baseline Risk:</span>
-                  <RiskBadge category={currentAnimal.risk_category || 'No Risk'} />
-                </div>
-                <div className="flex items-center justify-between font-mono">
-                  <span className="text-slate-400">Baseline Score:</span>
-                  <span className="font-bold text-white">{currentAnimal.risk_score || 0}%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Parity / Lactation:</span>
-                  <span className="font-semibold text-slate-200">Lactation {currentAnimal.lactation_number}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Previous Mastitis:</span>
-                  <span className="font-semibold text-slate-200">
-                    {currentAnimal.previous_mastitis === 1 ? 'Yes (History)' : 'None'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Step 2: Generate Reading Presets */}
-          <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg space-y-3">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                <Sliders className="w-4 h-4 text-indigo-400" />
-                <span>Step 2: Generate Sensor Reading</span>
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Applies realistic physiological variations around this animal's existing baseline.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                onClick={() => handleGenerateVariation('healthy_variation')}
-                className="w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-700/60 transition group flex items-start justify-between"
-              >
-                <div>
-                  <h4 className="font-bold text-emerald-400 text-xs flex items-center space-x-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Preset: Normal Baseline Fluctuation</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Minor healthy diurnal variations. Keeps metrics within safe operational bounds.
-                  </p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleGenerateVariation('mastitis_warning')}
-                className="w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-rose-500/30 transition group flex items-start justify-between"
-              >
-                <div>
-                  <h4 className="font-bold text-rose-400 text-xs flex items-center space-x-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    <span>Preset: Elevated Mastitis Early Warning</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Elevated SCC, conductivity surge, milk yield drop, and reduced rumination.
-                  </p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleGenerateVariation('heat_stress')}
-                className="w-full text-left p-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-amber-500/30 transition group flex items-start justify-between"
-              >
-                <div>
-                  <h4 className="font-bold text-amber-400 text-xs flex items-center space-x-1.5">
-                    <Thermometer className="w-3.5 h-3.5" />
-                    <span>Preset: Thermal Stress Shift</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Elevated ambient temperature & humidity with increased water intake.
-                  </p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => handleGenerateVariation('reset')}
-                className="w-full text-center py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-300 font-semibold transition"
-              >
-                Reset to Animal Baseline
-              </button>
-            </div>
           </div>
         </div>
+      </div>
 
-        {/* Right Column: Comparison Table (Previous vs New Simulated) */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-700/50 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                  <Activity className="w-4 h-4 text-emerald-400" />
-                  <span>Step 3: Compare Previous vs Simulated Reading</span>
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Parameter comparison across all 11 telemetry channels plus Somatic Cell Count
-                </p>
-              </div>
+      {/* 2. SIMULATION CONTROLS */}
+      <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg flex flex-wrap items-center gap-4">
+        {isSimulating ? (
+          <button
+            onClick={handleStopSimulation}
+            disabled={loadingForecast}
+            className="inline-flex items-center space-x-2.5 px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold text-sm shadow-lg shadow-rose-500/25 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <Square className="w-4 h-4 fill-white" />
+            <span>{t('stopSimulation')}</span>
+          </button>
+        ) : (
+          <button
+            onClick={handleStartSimulation}
+            disabled={loadingAnimals || loadingForecast}
+            className="inline-flex items-center space-x-2.5 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm shadow-lg shadow-blue-500/25 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            <span>{t('startSimulation')}</span>
+          </button>
+        )}
 
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30 self-start sm:self-center">
-                Simulated IoT Data Stream
-              </span>
-            </div>
+        {isSimulating && (
+          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+            <span>{t('simulationRunningNotice')}</span>
+          </div>
+        )}
 
-            {/* Comparison Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-700/50">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-700">
-                  <tr>
-                    <th className="p-2.5">Parameter</th>
-                    <th className="p-2.5">Previous Reading</th>
-                    <th className="p-2.5">New Simulated Reading</th>
-                    <th className="p-2.5">Change Delta</th>
-                    <th className="p-2.5">Reference Baseline</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {parametersList.map((param) => {
-                    const prevVal = baseline[param.key] ?? 0;
-                    const newVal = simulated[param.key] ?? prevVal;
-                    const diff = newVal - prevVal;
-                    const hasChanged = Math.abs(diff) > 0.001;
+        {loadingForecast && (
+          <div className="flex items-center space-x-2 text-xs text-blue-400 font-semibold">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span>{t('runningMlNotice')}</span>
+          </div>
+        )}
 
-                    let diffColor = 'text-slate-400';
-                    let diffBadge = 'bg-slate-800 text-slate-400 border-slate-700';
+        <div className="ml-auto text-xs text-slate-400 font-mono">
+          {t('selectedCow')}: <span className="text-white font-bold">{selectedAnimalId || 'None'}</span>
+        </div>
+      </div>
 
-                    if (hasChanged) {
-                      if (
-                        param.key === 'scc_cells_ml' ||
-                        param.key === 'milk_conductivity_ms_cm' ||
-                        param.key === 'body_temperature_c' ||
-                        param.key === 'udder_surface_temperature_c'
-                      ) {
-                        diffColor = diff > 0 ? 'text-rose-400' : 'text-emerald-400';
-                        diffBadge = diff > 0 ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-                      } else if (param.key === 'milk_yield_l_day' || param.key === 'rumination_min_day') {
-                        diffColor = diff < 0 ? 'text-rose-400' : 'text-emerald-400';
-                        diffBadge = diff < 0 ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-                      } else {
-                        diffBadge = 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-                      }
-                    }
+      {/* 3. SIMULATED COW VITALS (12 Parameters) */}
+      <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-6 shadow-lg space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+          <h2 className="text-sm font-bold text-slate-200 tracking-wider uppercase flex items-center space-x-2">
+            <Activity className="w-4 h-4 text-emerald-400" />
+            <span>{t('simulatedVitalsHeader')}</span>
+          </h2>
+          <span className="text-[11px] text-slate-400">
+            {isSimulating ? t('telemetryStreamNotice') : t('currentTelemetryNotice')}
+          </span>
+        </div>
 
-                    return (
-                      <tr key={param.key} className={hasChanged ? 'bg-slate-850/60' : 'hover:bg-slate-800/40'}>
-                        <td className="p-2.5 font-medium text-slate-200">
-                          <div>{param.label}</div>
-                          <span className="text-[10px] text-slate-400">{param.description}</span>
-                        </td>
-
-                        <td className="p-2.5 font-mono text-slate-400">
-                          {param.key === 'scc_cells_ml' ? prevVal.toLocaleString() : prevVal} {param.unit}
-                        </td>
-
-                        <td className="p-2.5">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="number"
-                              step={param.step}
-                              value={newVal}
-                              onChange={(e) => handleUpdateParameter(param.key, Number(e.target.value))}
-                              className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
-                            />
-                            <span className="text-[11px] text-slate-400">{param.unit}</span>
-                          </div>
-                        </td>
-
-                        <td className="p-2.5">
-                          {hasChanged ? (
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${diffBadge}`}>
-                              {diff > 0 ? `+${param.key === 'scc_cells_ml' ? Math.round(diff).toLocaleString() : diff.toFixed(1)}` : `${param.key === 'scc_cells_ml' ? Math.round(diff).toLocaleString() : diff.toFixed(1)}`} {param.unit}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 italic">No change</span>
-                          )}
-                        </td>
-
-                        <td className="p-2.5 text-[11px] text-slate-400">
-                          {param.normal}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Step 4 Action Button: Run AI Forecast */}
-            <div className="pt-3 border-t border-slate-700/50 flex items-center justify-between">
-              <div className="text-xs text-slate-400">
-                <span>Selected animal: </span>
-                <strong className="text-white font-mono">{selectedAnimalId}</strong>
-              </div>
-
-              <button
-                onClick={handleRunForecast}
-                disabled={runningForecast}
-                className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-500/20 transition disabled:opacity-50"
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {vitalParameters.map((param) => {
+            const Icon = param.icon;
+            return (
+              <div
+                key={param.id}
+                className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-4 flex items-center justify-between shadow-sm transition hover:border-slate-600"
               >
-                {runningForecast ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4" />
-                )}
-                <span>Run AI Early Forecast</span>
-              </button>
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700/50 shrink-0">
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-300 font-medium block">
+                      {param.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">{t('parameterNum')} #{param.id}</span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className={`text-base font-bold font-mono tracking-tight ${param.color}`}>
+                    {param.value}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. AI FORECAST RESULT (Appears after STOP) */}
+      {forecastResult && (
+        <div className="bg-slate-800/90 rounded-2xl border border-slate-700/60 p-6 shadow-xl space-y-5">
+          <div className="border-b border-slate-700/50 pb-3">
+            <h3 className="text-sm font-bold text-slate-300 tracking-wider uppercase">
+              {t('aiForecastHeader')}
+            </h3>
+            <div className="text-xs text-slate-400 mt-1">
+              {t('cowLabel')}: <span className="text-white font-mono font-bold text-sm">{forecastResult.animal_id}</span>
             </div>
           </div>
 
-          {/* Step 4 & 5: Forecast Results Panel */}
-          {forecastResult && (
-            <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-5 shadow-lg space-y-4 animate-fadeIn">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-700/50 pb-3">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                    <Zap className="w-4 h-4 text-amber-400" />
-                    <span>Step 4 & 5: Updated AI Early-Warning Forecast</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">{forecastResult.notice}</p>
-                </div>
-                <div className="text-xs font-bold px-3 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300">
-                  Forecast Window: <span className="text-emerald-400">7–14 days</span>
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Risk Level */}
+            <div className="bg-slate-900/90 border border-slate-700/70 rounded-xl p-5 space-y-1.5">
+              <span className="text-xs text-slate-400 font-medium block">{t('riskLevel')}</span>
+              <div className="flex items-center space-x-2 pt-0.5">
+                <span className="text-xl">
+                  {forecastResult.risk_category === 'High Risk'
+                    ? '🔴'
+                    : forecastResult.risk_category === 'Moderate Risk'
+                    ? '🟠'
+                    : forecastResult.risk_category === 'Low Risk'
+                    ? '🟡'
+                    : '🟢'}
+                </span>
+                <span
+                  className={`text-lg font-black tracking-wide uppercase ${
+                    forecastResult.risk_category === 'High Risk'
+                      ? 'text-rose-400'
+                      : forecastResult.risk_category === 'Moderate Risk'
+                      ? 'text-amber-400'
+                      : forecastResult.risk_category === 'Low Risk'
+                      ? 'text-yellow-400'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  {translateRiskCategory(forecastResult.risk_category).toUpperCase()}
+                </span>
               </div>
+            </div>
 
-              {/* Score Shift Card */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700/50">
-                  <span className="text-xs text-slate-400 block">Baseline Risk Score</span>
-                  <span className="text-2xl font-black text-slate-300 block mt-1">{baseline.risk_score || currentAnimal?.risk_score || 0}%</span>
-                  <span className="text-[10px] text-slate-400">Prior to simulation</span>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700/50">
-                  <span className="text-xs text-slate-400 block">New Simulated Risk Score</span>
-                  <div className="flex items-baseline space-x-2 mt-1">
-                    <span
-                      className={`text-2xl font-black ${
-                        forecastResult.assessment.risk_score > 60
-                          ? 'text-rose-400'
-                          : forecastResult.assessment.risk_score > 40
-                          ? 'text-amber-400'
-                          : 'text-emerald-400'
-                      }`}
-                    >
-                      {forecastResult.assessment.risk_score}%
-                    </span>
-                    <RiskBadge category={forecastResult.assessment.risk_category} />
-                  </div>
-                  <span className="text-[10px] text-slate-400">Computed via ML model</span>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-700/50">
-                  <span className="text-xs text-slate-400 block">Risk Score Shift</span>
-                  <span
-                    className={`text-2xl font-black block mt-1 ${
-                      forecastResult.assessment.risk_score - (currentAnimal?.risk_score || 0) > 0
-                        ? 'text-rose-400'
-                        : 'text-emerald-400'
-                    }`}
-                  >
-                    {forecastResult.assessment.risk_score - (currentAnimal?.risk_score || 0) > 0 ? '+' : ''}
-                    {(forecastResult.assessment.risk_score - (currentAnimal?.risk_score || 0)).toFixed(1)}%
-                  </span>
-                  <span className="text-[10px] text-slate-400">7–14 day forecast window</span>
-                </div>
+            {/* Risk Score */}
+            <div className="bg-slate-900/90 border border-slate-700/70 rounded-xl p-5 space-y-1.5">
+              <span className="text-xs text-slate-400 font-medium block">{t('riskScore')}</span>
+              <div className="text-3xl font-black font-mono text-white pt-0.5">
+                {forecastResult.risk_score}%
               </div>
+            </div>
 
-              {/* Model Derived Risk Factors for Simulated State */}
-              {forecastResult.assessment.risk_factors && forecastResult.assessment.risk_factors.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-slate-700/50">
-                  <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                    Model-Derived Risk Factors (From Simulated Readings)
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    {forecastResult.assessment.risk_factors.map((rf, idx) => (
-                      <div key={idx} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-start justify-between">
-                        <div>
-                          <span className="font-semibold text-white block">{rf.name}</span>
-                          <span className="text-slate-400 text-[11px]">{rf.value}</span>
-                        </div>
-                        <div className="text-right">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              rf.impact === 'High'
-                                ? 'bg-rose-500/20 text-rose-300'
-                                : rf.impact === 'Medium'
-                                ? 'bg-amber-500/20 text-amber-300'
-                                : 'bg-blue-500/20 text-blue-300'
-                            }`}
-                          >
-                            {rf.impact}
-                          </span>
-                          {rf.contribution_pct && (
-                            <span className="text-[10px] text-blue-300 block font-mono">
-                              +{rf.contribution_pct}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+            {/* Forecast Window */}
+            <div className="bg-slate-900/90 border border-slate-700/70 rounded-xl p-5 space-y-1.5">
+              <span className="text-xs text-slate-400 font-medium block">{t('forecastWindowLabel')}</span>
+              <div className="text-sm font-semibold text-slate-200 pt-1 leading-snug">
+                {forecastResult.forecast || 'Potential mastitis risk within 7–14 days'}
+              </div>
+            </div>
+          </div>
 
-              {/* Step 6: High Risk Alert & Simulated SMS Notification Notification */}
-              {forecastResult.assessment.risk_score > 60 && (
-                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3">
-                  <div className="flex items-center space-x-2 text-rose-300 font-bold text-xs">
-                    <ShieldAlert className="w-4 h-4 text-rose-400" />
-                    <span>HIGH RISK DETECTED: Automated Alert & Simulated SMS Triggered</span>
-                  </div>
+          {/* Alert Notification if High Risk */}
+          {forecastResult.alertCreated && (
+            <div className="p-4 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-start sm:items-center space-x-3 text-xs text-rose-300">
+              <span className="text-lg shrink-0">🔴</span>
+              <div className="leading-relaxed">
+                <strong>{t('highRiskAlertCreatedTitle')}:</strong> {t('cowLabel')}{' '}
+                <strong className="text-white font-mono">{forecastResult.animal_id}</strong> {t('highRiskAlertCreatedDesc')}
+              </div>
+            </div>
+          )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    {/* Alert Card */}
-                    <div className="p-3 rounded-lg bg-slate-900/80 border border-rose-500/20 space-y-1">
-                      <div className="flex items-center space-x-1.5 text-purple-300 font-semibold">
-                        <Bell className="w-3.5 h-3.5" />
-                        <span>System Alert Created</span>
-                      </div>
-                      <p className="text-[11px] text-slate-300 leading-snug">
-                        Early-warning alert logged for <strong>{selectedAnimalId}</strong> ({forecastResult.assessment.risk_score}% risk). Added to farm manager inspection queue.
-                      </p>
-                    </div>
-
-                    {/* Simulated SMS Card */}
-                    <div className="p-3 rounded-lg bg-slate-900/80 border border-emerald-500/20 space-y-1">
-                      <div className="flex items-center space-x-1.5 text-emerald-300 font-semibold">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Simulated SMS Notification Dispatched</span>
-                      </div>
-                      <p className="text-[11px] text-slate-300 leading-snug">
-                        Status: <span className="text-emerald-400 font-mono font-bold">SENT_SIMULATED</span> to <span className="font-mono text-slate-200">+1-555-HERD-VET</span>
-                      </p>
-                      {forecastResult.simulatedSms?.message && (
-                        <p className="text-[10px] font-mono text-slate-400 bg-slate-950/60 p-1.5 rounded mt-1 border border-slate-800">
-                          {forecastResult.simulatedSms.message}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
+          {/* Non-high-risk feedback */}
+          {!forecastResult.alertCreated && (
+            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/50 flex items-start sm:items-center space-x-3 text-xs text-slate-300">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div>
+                {t('predictionSavedDesc')}{' '}
+                <strong>{translateRiskCategory(forecastResult.risk_category)}</strong> {t('cowLabel')}{' '}
+                <strong className="font-mono">{forecastResult.animal_id}</strong>.
+              </div>
             </div>
           )}
         </div>
+      )}
+
+      {/* Disclaimer */}
+      <div className="text-[11px] text-slate-500 text-center leading-relaxed px-4">
+        {t('simulatorDisclaimer')}
       </div>
     </div>
   );

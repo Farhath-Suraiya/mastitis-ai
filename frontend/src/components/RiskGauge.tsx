@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldAlert, AlertTriangle, CheckCircle, Info, Clock, Calendar } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface RiskGaugeProps {
   score: number;
@@ -12,6 +13,7 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
   category,
   forecastWindow = '7–14 days',
 }) => {
+  const { t, translateRiskCategory } = useLanguage();
   const normCat = category ? category.toUpperCase() : 'NO RISK';
 
   let colorStroke = '#10B981'; // Green
@@ -59,7 +61,7 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
       <div className="flex items-center space-x-1.5 mb-3">
         <Clock className="w-3.5 h-3.5 text-slate-400" />
         <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-          AI Early-Warning Forecast
+          {t('earlyWarningForecast')}
         </span>
       </div>
 
@@ -94,7 +96,7 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
           </span>
           <span className="text-[11px] text-slate-500 font-bold">/&nbsp;100</span>
           <span className={`text-[10px] font-bold tracking-widest uppercase mt-1 ${labelColor}`}>
-            {category}
+            {translateRiskCategory(category)}
           </span>
         </div>
       </div>
@@ -103,8 +105,8 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
       <div className={`mt-4 w-full p-3 rounded-xl border text-xs flex items-start space-x-2.5 ${bannerBg}`}>
         <Icon className="w-4 h-4 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold block">Forecast Window:</span>
-          <span className="opacity-90">Potential mastitis risk within {forecastWindow}</span>
+          <span className="font-semibold block">{t('forecastWindowLabel')}:</span>
+          <span className="opacity-90">{forecastWindow}</span>
         </div>
       </div>
 
@@ -121,8 +123,8 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
           {/* Today */}
           <div className="relative z-10 flex flex-col items-center">
             <div className={`w-3.5 h-3.5 rounded-full bg-slate-800 border-2 ${timelineDot} shadow-md`} />
-            <span className="text-[10px] text-slate-300 font-bold mt-1.5">Today</span>
-            <span className="text-[9px] text-slate-500">Observation</span>
+            <span className="text-[10px] text-slate-300 font-bold mt-1.5">{t('today')}</span>
+            <span className="text-[9px] text-slate-500">{t('observation')}</span>
           </div>
 
           {/* 7 days */}
@@ -130,7 +132,7 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
             <div className={`w-3 h-3 rounded-full bg-slate-800 border-2 ${
               score > 40 ? timelineDot : 'border-slate-600'
             } shadow-md`} />
-            <span className="text-[10px] text-slate-400 font-semibold mt-1.5">7 days</span>
+            <span className="text-[10px] text-slate-400 font-semibold mt-1.5">{t('days7')}</span>
           </div>
 
           {/* 14 days */}
@@ -138,28 +140,15 @@ export const RiskGauge: React.FC<RiskGaugeProps> = ({
             <div className={`w-3 h-3 rounded-full bg-slate-800 border-2 ${
               score > 60 ? timelineDot : 'border-slate-600'
             } shadow-md`} />
-            <span className="text-[10px] text-slate-400 font-semibold mt-1.5">14 days</span>
+            <span className="text-[10px] text-slate-400 font-semibold mt-1.5">{t('days14')}</span>
           </div>
-        </div>
-
-        {/* Timeline Legend */}
-        <div className="mt-2 text-center">
-          <span className="text-[10px] text-slate-500 italic">
-            {normCat.includes('HIGH')
-              ? 'Elevated risk — potential mastitis event within this window'
-              : normCat.includes('MODERATE')
-              ? 'Moderate indicators — monitor closely during forecast period'
-              : normCat.includes('LOW')
-              ? 'Low-level indicators — routine monitoring advised'
-              : 'No significant risk indicators detected for this period'}
-          </span>
         </div>
       </div>
 
       {/* Disclaimer */}
       <div className="mt-3 w-full text-center">
         <p className="text-[10px] text-slate-500 leading-relaxed italic">
-          Prototype forecast based on synthetic data. Not a clinical diagnosis.
+          {t('gaugeDisclaimer')}
         </p>
       </div>
     </div>

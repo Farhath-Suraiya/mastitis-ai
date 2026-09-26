@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface RiskBadgeProps {
   category: 'No Risk' | 'Low Risk' | 'Moderate Risk' | 'High Risk' | string;
@@ -6,6 +7,7 @@ interface RiskBadgeProps {
 }
 
 export const RiskBadge: React.FC<RiskBadgeProps> = ({ category, size = 'md' }) => {
+  const { translateRiskCategory } = useLanguage();
   const normCat = category ? category.toUpperCase() : 'NO RISK';
 
   let bgClasses = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
@@ -33,7 +35,7 @@ export const RiskBadge: React.FC<RiskBadgeProps> = ({ category, size = 'md' }) =
       className={`inline-flex items-center font-medium rounded-full border ${bgClasses} ${sizeClasses}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`}></span>
-      <span>{category}</span>
+      <span>{translateRiskCategory(category)}</span>
     </span>
   );
 };

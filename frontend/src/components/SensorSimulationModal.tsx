@@ -3,6 +3,7 @@ import { Cpu, RefreshCw, Zap, Check, ShieldAlert, Bell, MessageSquare, Sliders, 
 import { Animal, SensorSimulateRequest, PredictionResponse } from '../types';
 import { simulateSensorData } from '../services/api';
 import { RiskBadge } from './RiskBadge';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface SensorSimulationModalProps {
   animal: Animal;
@@ -13,6 +14,7 @@ export const SensorSimulationModal: React.FC<SensorSimulationModalProps> = ({
   animal,
   onForecastUpdated,
 }) => {
+  const { t, translateRiskCategory } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [forecastResult, setForecastResult] = useState<{
     assessment: PredictionResponse;
@@ -134,18 +136,18 @@ export const SensorSimulationModal: React.FC<SensorSimulationModalProps> = ({
   };
 
   const parametersList = [
-    { key: 'body_temperature_c', label: 'Body Temp', unit: '°C', step: 0.1 },
-    { key: 'udder_surface_temperature_c', label: 'Udder Temp', unit: '°C', step: 0.1 },
-    { key: 'milk_temperature_c', label: 'Milk Temp', unit: '°C', step: 0.1 },
-    { key: 'milk_conductivity_ms_cm', label: 'Conductivity', unit: 'mS/cm', step: 0.05 },
-    { key: 'milk_yield_l_day', label: 'Milk Yield', unit: 'L/day', step: 0.5 },
-    { key: 'scc_cells_ml', label: 'SCC', unit: 'cells/ml', step: 10000 },
-    { key: 'activity_percent', label: 'Activity', unit: '%', step: 1.0 },
-    { key: 'rumination_min_day', label: 'Rumination', unit: 'min/day', step: 10 },
-    { key: 'water_intake_l_day', label: 'Water Intake', unit: 'L/day', step: 1.0 },
-    { key: 'feeding_behavior_score', label: 'Feeding Score', unit: '/10', step: 0.5 },
-    { key: 'ambient_temperature_c', label: 'Ambient Temp', unit: '°C', step: 0.5 },
-    { key: 'relative_humidity_percent', label: 'Humidity', unit: '%', step: 1.0 },
+    { key: 'body_temperature_c', label: t('bodyTemp'), unit: '°C', step: 0.1 },
+    { key: 'udder_surface_temperature_c', label: t('udderTemp'), unit: '°C', step: 0.1 },
+    { key: 'milk_temperature_c', label: t('milkTemp'), unit: '°C', step: 0.1 },
+    { key: 'milk_conductivity_ms_cm', label: t('milkConductivity'), unit: 'mS/cm', step: 0.05 },
+    { key: 'milk_yield_l_day', label: t('milkYield'), unit: 'L/day', step: 0.5 },
+    { key: 'scc_cells_ml', label: t('scc'), unit: 'cells/ml', step: 10000 },
+    { key: 'activity_percent', label: t('activityLevel'), unit: '%', step: 1.0 },
+    { key: 'rumination_min_day', label: t('ruminationTime'), unit: 'min/day', step: 10 },
+    { key: 'water_intake_l_day', label: t('waterIntake'), unit: 'L/day', step: 1.0 },
+    { key: 'feeding_behavior_score', label: t('feedingScore'), unit: '/10', step: 0.5 },
+    { key: 'ambient_temperature_c', label: t('ambientTemp'), unit: '°C', step: 0.5 },
+    { key: 'relative_humidity_percent', label: t('humidity'), unit: '%', step: 1.0 },
   ];
 
   return (
@@ -157,8 +159,8 @@ export const SensorSimulationModal: React.FC<SensorSimulationModalProps> = ({
             <Cpu className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">Live IoT Sensor Simulator</h3>
-            <span className="text-xs text-blue-300 font-bold">Simulated IoT Data — Software Simulation</span>
+            <h3 className="text-base font-bold text-white">{t('simulatorTitle')}</h3>
+            <span className="text-xs text-blue-300 font-bold">{t('softwareSimulation')}</span>
           </div>
         </div>
 
@@ -167,19 +169,19 @@ export const SensorSimulationModal: React.FC<SensorSimulationModalProps> = ({
             onClick={() => handleGenerateVariation('healthy_variation')}
             className="text-xs px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition font-medium"
           >
-            Preset: Normal Fluctuation
+            {t('healthyScenario')}
           </button>
           <button
             onClick={() => handleGenerateVariation('mastitis_warning')}
             className="text-xs px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 transition font-bold"
           >
-            Preset: High Risk Warning
+            {t('highRiskScenario')}
           </button>
           <button
             onClick={() => handleGenerateVariation('reset')}
             className="text-xs px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 transition"
           >
-            Reset
+            {t('resetBaseline')}
           </button>
         </div>
       </div>

@@ -1,10 +1,13 @@
 import os
 import joblib
+import json
+import logging
 import pandas as pd
 import numpy as np
 from ml.preprocessing import clean_dataframe, FEATURE_COLUMNS
 from ml.train_model import MODEL_PATH, train_and_save
 
+logger = logging.getLogger("mastitis.prediction")
 _MODEL_CACHE = None
 
 def get_model_payload():
@@ -20,12 +23,33 @@ def get_model_payload():
         
     return _MODEL_CACHE
 
+def probability_to_calibrated_risk_score(prob: float) -> float:
+    """
+    Monotonically maps the raw Random Forest positive-class probability P(mastitis_within_7_14_days=1)
+    to a standardized 0-100% risk score index calibrated against the empirical distribution
+    of the trained model (where target positive prevalence is ~3.68% and raw probabilities span 0.01 to 0.775):
+      prob < 0.13: No Risk [0, 20)
+      0.13 <= prob < 0.22: Low Risk [20, 40)
+      0.22 <= prob < 0.35: Moderate Risk [40, 60)
+      prob >= 0.35: High Risk [60, 100]
+    """
+    prob = max(0.0, min(1.0, float(prob)))
+    if prob < 0.13:
+        score = (prob / 0.13) * 20.0
+    elif prob < 0.22:
+        score = 20.0 + ((prob - 0.13) / (0.22 - 0.13)) * 20.0
+    elif prob < 0.35:
+        score = 40.0 + ((prob - 0.22) / (0.35 - 0.22)) * 20.0
+    else:
+        score = 60.0 + min(40.0, ((prob - 0.35) / (0.65 - 0.35)) * 40.0)
+    return round(float(score), 1)
+
 def compute_risk_category(risk_score: float) -> str:
-    if risk_score <= 20:
+    if risk_score < 20.0:
         return "No Risk"
-    elif risk_score <= 40:
+    elif risk_score < 40.0:
         return "Low Risk"
-    elif risk_score <= 60:
+    elif risk_score < 60.0:
         return "Moderate Risk"
     else:
         return "High Risk"
@@ -63,12 +87,35 @@ def predict_single(data_dict: dict) -> dict:
             df_clean[col] = np.nan
             
     X_single = df_clean[FEATURE_COLUMNS]
+    
+    # Preprocess features
     X_trans = preprocessor.transform(X_single)
     
-    prob = float(rf_model.predict_proba(X_trans)[0, 1])
-    risk_score = round(prob * 100.0, 1)
+    # Determine positive-class index explicitly from rf_model.classes_
+    classes = list(rf_model.classes_)
+    pos_idx = classes.index(1) if 1 in classes else (classes.index(True) if True in classes else 1)
+    
+    # Predict probabilities
+    raw_probs = rf_model.predict_proba(X_trans)[0]
+    prob = float(raw_probs[pos_idx])
+    
+    risk_score = probability_to_calibrated_risk_score(prob)
     risk_category = compute_risk_category(risk_score)
     pred_binary = 1 if prob >= 0.5 else 0
+    
+    # Trace log the exact pipeline values immediately around predict_proba()
+    print("=" * 60)
+    print("PREDICTION PIPELINE TRACE")
+    print("=" * 60)
+    print(f"1. Complete feature DataFrame shape: {X_single.shape}")
+    print(f"2. Feature names ({len(FEATURE_COLUMNS)} features):\n   {FEATURE_COLUMNS}")
+    print(f"3. Feature values:\n{json.dumps(X_single.iloc[0].dropna().to_dict(), indent=2, default=str)}")
+    print(f"4. model.classes_: {rf_model.classes_}")
+    print(f"5. model.predict_proba(X): {raw_probs}")
+    print(f"6. Positive class index: {pos_idx} -> P(mastitis_within_7_14_days=1) = {prob:.4f}")
+    print(f"7. Final calibrated risk score: {risk_score}%")
+    print(f"8. Final risk category: {risk_category}")
+    print("=" * 60)
     
     feature_names = payload.get("feature_names")
     if not feature_names:
@@ -88,6 +135,8 @@ def predict_single(data_dict: dict) -> dict:
         "forecast": "7–14 days",
         "prediction": pred_binary,
         "probability": prob,
+        "raw_probabilities": [float(p) for p in raw_probs],
         "risk_factors": risk_factors
     }
+
 

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { CheckSquare, ShieldCheck, AlertCircle, Info, Filter } from 'lucide-react';
+import { Info, Filter } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export const Recommendations: React.FC = () => {
+  const { t } = useLanguage();
   const [categoryFilter, setCategoryFilter] = useState('ALL');
 
   const recommendationCatalog = [
@@ -79,9 +81,9 @@ export const Recommendations: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-white tracking-tight">Preventive Recommendation Guide</h1>
+        <h1 className="text-2xl font-extrabold text-white tracking-tight">{t('recommendationsGuideTitle')}</h1>
         <p className="text-xs text-slate-400 mt-1">
-          Standard operating procedures and preventive monitoring guidelines triggered by AI risk factors
+          {t('recommendationsGuideSubtitle')}
         </p>
       </div>
 
@@ -89,21 +91,21 @@ export const Recommendations: React.FC = () => {
       <div className="bg-slate-800/80 rounded-2xl border border-slate-700/60 p-4 shadow-lg flex items-center justify-between text-xs">
         <div className="flex items-center space-x-2">
           <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-slate-300 font-medium">Category:</span>
+          <span className="text-slate-300 font-medium">{t('categoryFilterLabel')}</span>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none"
           >
-            <option value="ALL">All Categories</option>
-            <option value="Milk Quality">Milk Quality</option>
-            <option value="Udder Health">Udder Health</option>
-            <option value="Production">Production</option>
-            <option value="Behavior & Digestion">Behavior & Digestion</option>
-            <option value="Sanitation">Sanitation</option>
-            <option value="Surveillance">Surveillance</option>
-            <option value="Systemic Health">Systemic Health</option>
-            <option value="Veterinary Review">Veterinary Review</option>
+            <option value="ALL">{t('allCategoriesOption')}</option>
+            <option value="Milk Quality">{t('milkQualityCat')}</option>
+            <option value="Udder Health">{t('udderHealthCat')}</option>
+            <option value="Production">{t('thYield')}</option>
+            <option value="Behavior & Digestion">{t('thRumination')}</option>
+            <option value="Sanitation">{t('sanitationCat')}</option>
+            <option value="Surveillance">{t('observation')}</option>
+            <option value="Systemic Health">{t('bodyTemp')}</option>
+            <option value="Veterinary Review">{t('aiRecommendationsSection')}</option>
           </select>
         </div>
       </div>
@@ -126,7 +128,7 @@ export const Recommendations: React.FC = () => {
                     : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 }`}
               >
-                {rec.priority}
+                {rec.priority === 'HIGH' ? t('priorityHigh') : rec.priority === 'MEDIUM' ? t('priorityMedium') : rec.priority}
               </span>
             </div>
 
@@ -135,7 +137,7 @@ export const Recommendations: React.FC = () => {
 
             <div className="pt-2 border-t border-slate-700/40 text-[11px] text-slate-400 flex items-center space-x-1">
               <Info className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Trigger Threshold: <strong className="text-slate-200">{rec.trigger}</strong></span>
+              <span>{t('triggerThresholdLabel')} <strong className="text-slate-200">{rec.trigger}</strong></span>
             </div>
           </div>
         ))}

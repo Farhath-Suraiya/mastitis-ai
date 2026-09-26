@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 from database import AnimalModel
 from ml.preprocessing import clean_dataframe, FEATURE_COLUMNS
-from ml.predict import get_model_payload, compute_risk_category
+from ml.predict import get_model_payload, compute_risk_category, probability_to_calibrated_risk_score
 
 def get_vectorized_animal_predictions(animals: list) -> pd.DataFrame:
     if not animals:
@@ -60,20 +60,20 @@ def get_vectorized_animal_predictions(animals: list) -> pd.DataFrame:
     rf_model = payload["rf_model"]
     
     X_trans = preprocessor.transform(df_clean[FEATURE_COLUMNS])
-    probs = rf_model.predict_proba(X_trans)[:, 1]
+    classes = list(rf_model.classes_)
+    pos_idx = classes.index(1) if 1 in classes else (classes.index(True) if True in classes else 1)
+    probs = rf_model.predict_proba(X_trans)[:, pos_idx]
     
     df_raw['probability'] = probs
-    df_raw['risk_score'] = np.round(probs * 100.0, 1)
+    df_raw['risk_score'] = [probability_to_calibrated_risk_score(p) for p in probs]
     df_raw['risk_category'] = df_raw['risk_score'].apply(compute_risk_category)
     return df_raw
 
-def get_herd_summary_data(db: Session) -> dict:
-    animals = db.query(AnimalModel).all()
-    total_animals = len(animals)
-    
-    if total_animals == 0:
+def compute_herd_summary_from_df(df_preds: pd.DataFrame, db: Session, total_animals: int) -> dict:
+    if total_animals == 0 or df_preds.empty:
         return {
             "total_animals": 0,
+            "animals_monitored": 0,
             "no_risk_count": 0,
             "low_risk_count": 0,
             "moderate_risk_count": 0,
@@ -87,8 +87,6 @@ def get_herd_summary_data(db: Session) -> dict:
             "average_rumination": 0.0
         }
 
-    df_preds = get_vectorized_animal_predictions(animals)
-    
     no_risk = int((df_preds['risk_category'] == 'No Risk').sum())
     low_risk = int((df_preds['risk_category'] == 'Low Risk').sum())
     mod_risk = int((df_preds['risk_category'] == 'Moderate Risk').sum())
@@ -158,14 +156,37 @@ def get_herd_summary_data(db: Session) -> dict:
         "average_rumination": round(avg_rum, 1)
     }
 
+def get_herd_summary_data(db: Session) -> dict:
+    animals = db.query(AnimalModel).all()
+    total_animals = len(animals)
+    
+    if total_animals == 0:
+        return {
+            "total_animals": 0,
+            "animals_monitored": 0,
+            "no_risk_count": 0,
+            "low_risk_count": 0,
+            "moderate_risk_count": 0,
+            "high_risk_count": 0,
+            "overall_herd_risk": "No Risk",
+            "high_risk_animals": [],
+            "average_scc": 0.0,
+            "average_milk_yield": 0.0,
+            "average_conductivity": 0.0,
+            "average_activity": 0.0,
+            "average_rumination": 0.0
+        }
+
+    df_preds = get_vectorized_animal_predictions(animals)
+    return compute_herd_summary_from_df(df_preds, db, total_animals)
+
 def get_analytics_charts_data(db: Session) -> dict:
     animals = db.query(AnimalModel).all()
     if not animals:
         return {}
         
     df_preds = get_vectorized_animal_predictions(animals)
-    
-    summary = get_herd_summary_data(db)
+    summary = compute_herd_summary_from_df(df_preds, db, len(animals))
     risk_distribution = [
         {"name": "No Risk", "count": summary["no_risk_count"], "color": "#10B981"},
         {"name": "Low Risk", "count": summary["low_risk_count"], "color": "#3B82F6"},

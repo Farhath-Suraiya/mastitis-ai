@@ -6,10 +6,19 @@ from typing import List, Dict, Any
 
 def create_alert_if_needed(db: Session, animal_id: str, farm_id: str, risk_score: float, risk_category: str, risk_factors: list) -> AlertRecord:
     """
-    Creates an Alert record in DB if animal risk score is Moderate or High (> 40%),
-    or if sensor warning flags are active.
+    Creates or updates an Alert record in DB if animal risk score is > 40%.
+    If risk score drops to <= 40 (No Risk / Low Risk), any existing unresolved
+    alert for this animal is auto-resolved so the Dashboard count stays accurate.
     """
     if risk_score <= 40:
+        # Auto-resolve any stale unresolved alert when risk drops below moderate
+        stale = db.query(AlertRecord).filter(
+            AlertRecord.animal_id == animal_id,
+            AlertRecord.is_reviewed == False
+        ).first()
+        if stale:
+            stale.is_reviewed = True
+            db.commit()
         return None
         
     severity = "HIGH" if risk_score > 60 else "MODERATE"
@@ -52,6 +61,7 @@ def create_alert_if_needed(db: Session, animal_id: str, farm_id: str, risk_score
         db.commit()
         db.refresh(new_alert)
         return new_alert
+
 
 def get_active_alerts(db: Session) -> List[Dict[str, Any]]:
     from database import SMSNotificationRecord, PredictionRecord

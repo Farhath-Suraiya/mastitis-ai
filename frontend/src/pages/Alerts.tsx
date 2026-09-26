@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, CheckCircle2, AlertTriangle, ShieldAlert, Eye, RefreshCw, Filter, MessageSquare } from 'lucide-react';
+import { CheckCircle2, ShieldAlert, Eye, RefreshCw, Filter, MessageSquare } from 'lucide-react';
 import { Alert, SMSNotification } from '../types';
 import { getAlerts, markAlertAsReviewed, getSmsHistory, getSmsSettings, sendSmsForAnimal } from '../services/api';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export const Alerts: React.FC = () => {
+  const { t } = useLanguage();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('UNREVIEWED');
   const [smsHistory, setSmsHistory] = useState<SMSNotification[]>([]);
-  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [, setSmsEnabled] = useState(false);
   const [smsSending, setSmsSending] = useState<number | null>(null);
-  const [smsSentIds, setSmsSentIds] = useState<Record<string, boolean>>({});
+  const [, setSmsSentIds] = useState<Record<string, boolean>>({});
 
   const fetchAlertsData = async () => {
     setLoading(true);
@@ -58,7 +60,6 @@ export const Alerts: React.FC = () => {
   const handleDispatchSms = async (alert: Alert) => {
     setSmsSending(alert.id);
     try {
-      // Get the configured SMS settings to pick a recipient
       const cfg = await getSmsSettings();
       const recipient = cfg.farmer_phone || cfg.vet_phone || '+00-000-PLACEHOLDER';
       await sendSmsForAnimal(alert.animal_id, recipient);
@@ -87,9 +88,9 @@ export const Alerts: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight">Active Early Warning Alerts</h1>
+          <h1 className="text-2xl font-extrabold text-white tracking-tight">{t('alertsTitle')}</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time notifications generated when an animal's predicted mastitis risk exceeds threshold limits
+            {t('alertsSubtitle')}
           </p>
         </div>
 
@@ -98,7 +99,7 @@ export const Alerts: React.FC = () => {
           className="self-start sm:self-auto flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition"
         >
           <RefreshCw className="w-3.5 h-3.5" />
-          <span>Refresh Alerts</span>
+          <span>{t('refreshAlertsBtn')}</span>
         </button>
       </div>
 
@@ -107,7 +108,7 @@ export const Alerts: React.FC = () => {
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-1.5 text-slate-400 font-medium">
             <Filter className="w-4 h-4" />
-            <span>Filter Status:</span>
+            <span>{t('filterStatusLabel')}</span>
           </div>
           <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-700">
             <button
@@ -116,7 +117,7 @@ export const Alerts: React.FC = () => {
                 statusFilter === 'UNREVIEWED' ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Active / Unreviewed
+              {t('activeUnreviewed')}
             </button>
             <button
               onClick={() => setStatusFilter('REVIEWED')}
@@ -124,7 +125,7 @@ export const Alerts: React.FC = () => {
                 statusFilter === 'REVIEWED' ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Reviewed
+              {t('reviewedTab')}
             </button>
             <button
               onClick={() => setStatusFilter('ALL')}
@@ -132,22 +133,22 @@ export const Alerts: React.FC = () => {
                 statusFilter === 'ALL' ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              All Alerts
+              {t('allAlertsTab')}
             </button>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
-          <span className="text-slate-400">Severity:</span>
+          <span className="text-slate-400">{t('severityLabel')}</span>
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-slate-200 text-xs focus:outline-none"
           >
-            <option value="ALL">All Severities</option>
-            <option value="HIGH">High Severity</option>
-            <option value="MODERATE">Moderate Severity</option>
-            <option value="LOW">Low Severity</option>
+            <option value="ALL">{t('allSeverities')}</option>
+            <option value="HIGH">{t('highSeverity')}</option>
+            <option value="MODERATE">{t('moderateSeverity')}</option>
+            <option value="LOW">{t('lowSeverity')}</option>
           </select>
         </div>
       </div>
@@ -157,7 +158,7 @@ export const Alerts: React.FC = () => {
         {loading ? (
           <div className="p-12 text-center text-slate-400 bg-slate-800/50 rounded-2xl border border-slate-700">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-400" />
-            Checking alert system records...
+            {t('checkingAlertRecords')}
           </div>
         ) : filteredAlerts.length > 0 ? (
           filteredAlerts.map((alert) => (
@@ -216,7 +217,7 @@ export const Alerts: React.FC = () => {
                   className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center space-x-1 transition"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>Inspect</span>
+                  <span>{t('btnInspect')}</span>
                 </Link>
 
                 {/* SMS Alert Badge / Dispatch Button */}
@@ -227,7 +228,7 @@ export const Alerts: React.FC = () => {
                       <div className="flex flex-col items-end">
                         <span className="flex items-center space-x-1 text-[10px] px-2.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold">
                           <MessageSquare className="w-3 h-3" />
-                          <span>SMS Alert Sent</span>
+                          <span>{t('smsAlertSentBadge')}</span>
                         </span>
                         <span className="text-[10px] text-slate-500 mt-0.5">
                           → {sentSms.recipient} · {sentSms.sent_at ? new Date(sentSms.sent_at).toLocaleTimeString() : ''}
@@ -246,7 +247,7 @@ export const Alerts: React.FC = () => {
                       ) : (
                         <MessageSquare className="w-3.5 h-3.5" />
                       )}
-                      <span>{smsSending === alert.id ? 'Sending…' : 'Dispatch SMS'}</span>
+                      <span>{smsSending === alert.id ? t('loadingData') : t('dispatchSmsBtn')}</span>
                     </button>
                   );
                 })()}
@@ -257,11 +258,11 @@ export const Alerts: React.FC = () => {
                     className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center space-x-1 transition"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Mark Reviewed</span>
+                    <span>{t('markReviewedBtn')}</span>
                   </button>
                 ) : (
                   <span className="text-xs text-slate-500 font-semibold px-3 py-1 bg-slate-900/60 rounded-xl border border-slate-800">
-                    Reviewed
+                    {t('reviewedBadge')}
                   </span>
                 )}
               </div>
@@ -269,7 +270,7 @@ export const Alerts: React.FC = () => {
           ))
         ) : (
           <div className="p-12 text-center text-slate-500 bg-slate-800/50 rounded-2xl border border-slate-700">
-            No alerts found matching the current filter criteria.
+            {t('noAlertsMatching')}
           </div>
         )}
       </div>

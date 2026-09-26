@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Settings as SettingsIcon,
   Cpu,
   Database,
   Award,
@@ -26,13 +25,15 @@ import {
   getSmsHistory,
 } from '../services/api';
 import { ModelMetrics, SMSSettings, SMSNotification } from '../types';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export const Settings: React.FC = () => {
-  const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { t } = useLanguage();
+  const [, setMetrics] = useState<ModelMetrics | null>(null);
+  const [, setLoading] = useState(true);
 
   // SMS state
-  const [smsSettings, setSmsSettings] = useState<SMSSettings | null>(null);
+  const [, setSmsSettings] = useState<SMSSettings | null>(null);
   const [smsEnabled, setSmsEnabled] = useState(false);
   const [farmerPhone, setFarmerPhone] = useState('');
   const [vetPhone, setVetPhone] = useState('');
@@ -148,9 +149,9 @@ export const Settings: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-white tracking-tight">System Settings & Data Import</h1>
+        <h1 className="text-2xl font-extrabold text-white tracking-tight">{t('systemSettingsTitle')}</h1>
         <p className="text-xs text-slate-400 mt-1">
-          Manage dataset imports, SMS alert notifications, ML model architecture, and system status
+          {t('systemSettingsSubtitle')}
         </p>
       </div>
 
@@ -168,9 +169,9 @@ export const Settings: React.FC = () => {
               <MessageSquare className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">SMS Notifications & Early Warning Alerts</h3>
+              <h3 className="text-base font-bold text-white">{t('smsPanelTitle')}</h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Auto-dispatch simulated SMS when AI detects a High Risk animal
+                {t('smsPanelSubtitle')}
               </p>
             </div>
           </div>
@@ -178,7 +179,7 @@ export const Settings: React.FC = () => {
           {/* Demo Mode Badge */}
           <div className="hidden sm:flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs px-3 py-1.5 rounded-full">
             <Info className="w-3.5 h-3.5 shrink-0" />
-            <span className="font-semibold">Demo Mode — No real SMS sent</span>
+            <span className="font-semibold">{t('demoModeBadge')}</span>
           </div>
         </div>
 
@@ -186,12 +187,9 @@ export const Settings: React.FC = () => {
         <div className="bg-amber-500/8 border border-amber-500/20 rounded-xl p-4 flex items-start space-x-3 text-xs text-amber-200">
           <ShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-semibold text-amber-300">Demo Mode: SMS messages are simulated and no real SMS is sent.</p>
+            <p className="font-semibold text-amber-300">{t('demoModeDisclaimerTitle')}</p>
             <p className="opacity-90 leading-relaxed">
-              This system generates formatted early warning SMS alerts and saves them to the local database
-              for audit purposes. No network call to a telecom provider is made. SMS recommendations do
-              <strong> NOT</strong> prescribe antibiotics or medication. All messages direct recipients to{' '}
-              <em>"inspect the animal and consult the responsible veterinary professional."</em>
+              {t('demoModeDisclaimerBody')}
             </p>
           </div>
         </div>
@@ -201,8 +199,8 @@ export const Settings: React.FC = () => {
           {/* Enable toggle */}
           <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 flex items-center justify-between">
             <div>
-              <span className="text-sm font-semibold text-white block">Enable SMS Notifications</span>
-              <span className="text-xs text-slate-400">Auto-send for High Risk predictions (&gt;60%)</span>
+              <span className="text-sm font-semibold text-white block">{t('enableSmsTitle')}</span>
+              <span className="text-xs text-slate-400">{t('enableSmsDesc')}</span>
             </div>
             <button
               onClick={() => setSmsEnabled((v) => !v)}
@@ -219,17 +217,15 @@ export const Settings: React.FC = () => {
 
           {/* SMS Mode */}
           <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 space-y-2">
-            <span className="text-sm font-semibold text-white block">SMS Mode</span>
+            <span className="text-sm font-semibold text-white block">{t('smsModeTitle')}</span>
             <div className="flex items-center space-x-3 text-xs">
               <div className="flex items-center space-x-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-3 py-1.5 rounded-full">
                 <Smartphone className="w-3.5 h-3.5" />
-                <span className="font-semibold">Simulated SMS</span>
-                <span className="text-emerald-400 font-bold">✓ Active</span>
+                <span className="font-semibold">{t('simulatedSmsActive')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-slate-800 border border-slate-700 text-slate-500 px-3 py-1.5 rounded-full">
                 <Phone className="w-3.5 h-3.5" />
-                <span>Real SMS</span>
-                <span className="text-xs text-slate-600">(Coming Soon)</span>
+                <span>{t('realSmsComingSoon')}</span>
               </div>
             </div>
           </div>
@@ -240,7 +236,7 @@ export const Settings: React.FC = () => {
           <div className="space-y-1.5">
             <label className="text-slate-300 font-semibold flex items-center space-x-1.5">
               <Phone className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Farmer Phone Number</span>
+              <span>{t('farmerPhoneTitle')}</span>
             </label>
             <input
               type="tel"
@@ -253,7 +249,7 @@ export const Settings: React.FC = () => {
           <div className="space-y-1.5">
             <label className="text-slate-300 font-semibold flex items-center space-x-1.5">
               <Phone className="w-3.5 h-3.5 text-blue-400" />
-              <span>Veterinarian Phone Number</span>
+              <span>{t('vetPhoneTitle')}</span>
             </label>
             <input
               type="tel"
@@ -277,12 +273,12 @@ export const Settings: React.FC = () => {
             ) : (
               <CheckCircle2 className="w-3.5 h-3.5" />
             )}
-            <span>{savingSettings ? 'Saving…' : 'Save SMS Settings'}</span>
+            <span>{savingSettings ? t('loadingData') : t('saveSmsSettingsBtn')}</span>
           </button>
           {settingsSaved && (
             <span className="text-xs text-emerald-400 font-semibold flex items-center space-x-1">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Settings saved!</span>
+              <span>{t('settingsSavedBadge')}</span>
             </span>
           )}
         </div>
@@ -291,15 +287,15 @@ export const Settings: React.FC = () => {
         <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/50 space-y-3">
           <div className="flex items-center space-x-2 text-sm font-semibold text-white">
             <Send className="w-4 h-4 text-emerald-400" />
-            <span>Send Test SMS</span>
+            <span>{t('sendTestSmsTitle')}</span>
           </div>
           <p className="text-xs text-slate-400">
-            Verifies the simulated SMS pipeline is working. No real message is transmitted.
+            {t('sendTestSmsDesc')}
           </p>
           <div className="flex items-center space-x-2">
             <input
               type="tel"
-              placeholder="Override recipient (optional — uses farmer/vet phone if blank)"
+              placeholder={t('testRecipientPlaceholder')}
               value={testSmsRecipient}
               onChange={(e) => setTestSmsRecipient(e.target.value)}
               className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white placeholder-slate-600 text-xs focus:outline-none focus:border-emerald-500 transition"
@@ -314,7 +310,7 @@ export const Settings: React.FC = () => {
               ) : (
                 <Send className="w-3.5 h-3.5" />
               )}
-              <span>{smsLoading ? 'Sending…' : 'Send Test SMS'}</span>
+              <span>{smsLoading ? t('loadingData') : t('sendTestSmsButtonText')}</span>
             </button>
           </div>
 
@@ -341,7 +337,7 @@ export const Settings: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-sm font-semibold text-white">
               <Clock className="w-4 h-4 text-slate-400" />
-              <span>Recent SMS Notification History</span>
+              <span>{t('recentSmsHistoryTitle')}</span>
             </div>
             <button
               onClick={handleRefreshHistory}
@@ -349,25 +345,25 @@ export const Settings: React.FC = () => {
               className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 font-semibold transition"
             >
               <RefreshCw className={`w-3 h-3 ${smsLoading ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
+              <span>{t('refreshDataBtn')}</span>
             </button>
           </div>
 
           {smsHistory.length === 0 ? (
             <div className="text-center text-slate-500 text-xs py-8 bg-slate-900/40 rounded-xl border border-slate-700/50">
-              No SMS notifications recorded yet. Send a test or trigger a High Risk prediction.
+              {t('noSmsRecordedMsg')}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-700/50">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-700">
                   <tr>
-                    <th className="p-3">Animal ID</th>
-                    <th className="p-3">Recipient</th>
-                    <th className="p-3">Risk</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Mode</th>
-                    <th className="p-3">Sent At</th>
+                    <th className="p-3">{t('thAnimalId')}</th>
+                    <th className="p-3">{t('recipientLabel')}</th>
+                    <th className="p-3">{t('thCategory')}</th>
+                    <th className="p-3">{t('statusLabel')}</th>
+                    <th className="p-3">{t('modeLabel')}</th>
+                    <th className="p-3">{t('sentAtLabel')}</th>
                     <th className="p-3">Message Preview</th>
                   </tr>
                 </thead>
@@ -417,33 +413,33 @@ export const Settings: React.FC = () => {
         <div className="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/60 shadow-lg space-y-2">
           <div className="flex items-center space-x-2 text-emerald-400 font-bold">
             <Cpu className="w-5 h-5" />
-            <span>Primary Model</span>
+            <span>{t('primaryModelCardTitle')}</span>
           </div>
           <p className="text-slate-300 font-medium">Random Forest Classifier (scikit-learn)</p>
           <p className="text-slate-400 text-[11px]">
-            150 Estimators with balanced class weighting and Joblib persistence (`ml/model.pkl`).
+            {t('primaryModelCardDesc')}
           </p>
         </div>
 
         <div className="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/60 shadow-lg space-y-2">
           <div className="flex items-center space-x-2 text-blue-400 font-bold">
             <Database className="w-5 h-5" />
-            <span>Persistence Engine</span>
+            <span>{t('persistenceEngineTitle')}</span>
           </div>
           <p className="text-slate-300 font-medium">SQLite Database (`mastitis_ai.db`)</p>
           <p className="text-slate-400 text-[11px]">
-            Stores animals, sensor observation logs, prediction audit trails, alerts, and SMS notification records.
+            {t('persistenceEngineDesc')}
           </p>
         </div>
 
         <div className="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/60 shadow-lg space-y-2">
           <div className="flex items-center space-x-2 text-amber-400 font-bold">
             <Award className="w-5 h-5" />
-            <span>Baseline Model</span>
+            <span>{t('baselineModelCardTitle')}</span>
           </div>
           <p className="text-slate-300 font-medium">Logistic Regression</p>
           <p className="text-slate-400 text-[11px]">
-            Linear baseline classifier used for performance benchmarking and comparative validation.
+            {t('baselineModelCardDesc')}
           </p>
         </div>
       </div>

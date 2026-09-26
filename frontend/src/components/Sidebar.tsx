@@ -12,20 +12,24 @@ import {
   Cpu
 } from 'lucide-react';
 
+import { useLanguage } from '../i18n/LanguageContext';
+
 interface SidebarProps {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen }) => {
+  const { t } = useLanguage();
+
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Animals', path: '/animals', icon: Users },
-    { name: 'IoT Simulator', path: '/simulator', icon: Cpu },
-    { name: 'Herd Analytics', path: '/analytics', icon: BarChart3 },
-    { name: 'Alerts', path: '/alerts', icon: Bell },
-    { name: 'Recommendations', path: '/recommendations', icon: CheckSquare },
-    { name: 'Settings & Data', path: '/settings', icon: Settings },
+    { name: t('navDashboard'), path: '/', icon: LayoutDashboard },
+    { name: t('navAnimals'), path: '/animals', icon: Users },
+    { name: t('navSimulator'), path: '/simulator', icon: Cpu },
+    { name: t('navAnalytics'), path: '/analytics', icon: BarChart3 },
+    { name: t('navAlerts'), path: '/alerts', icon: Bell },
+    { name: t('navRecommendations'), path: '/recommendations', icon: CheckSquare },
+    { name: t('navSettings'), path: '/settings', icon: Settings },
   ];
 
 
@@ -47,7 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
         <div>
           {/* Header padding for mobile */}
           <div className="h-16 flex items-center px-6 lg:hidden border-b border-slate-800">
-            <span className="font-bold text-lg text-white">Navigation</span>
+            <span className="font-bold text-lg text-white">{t('navDashboard')}</span>
           </div>
 
           <nav className="px-4 py-6 space-y-1.5">
@@ -78,10 +82,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen })
         <div className="p-4 m-4 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs text-slate-400 space-y-2">
           <div className="flex items-center space-x-1.5 text-amber-400 font-semibold">
             <Info className="w-4 h-4 shrink-0" />
-            <span>Synthetic Prototype</span>
+            <span>{t('softwareSimulation')}</span>
           </div>
           <p className="leading-relaxed text-[11px]">
-            Trained on synthetic datasets for 7–14 day early warning decision support. Requires validation before clinical use.
+            {t('simulatedPlatformDesc')}
           </p>
         </div>
       </aside>

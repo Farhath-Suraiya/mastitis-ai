@@ -66,7 +66,7 @@ def read_root():
 @app.get("/animals")
 def get_animals(
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     search: Optional[str] = None,
     farm_id: Optional[str] = None,
     breed: Optional[str] = None,
@@ -305,7 +305,7 @@ def simulate_sensor(req: SensorSimulateRequest, db: Session = Depends(get_db)):
         "updated_measurements": req.dict(),
         "ai_assessment": pred_res,
         "simulated_sms": sms_result,
-        "alert_created": (pred_res["risk_score"] > 40)
+        "alert_created": (pred_res["risk_category"] == "High Risk" or pred_res["risk_score"] > 60)
     }
 
 
